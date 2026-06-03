@@ -730,6 +730,33 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 // ============ SUPERVISOR HOME ============
+// ============ SELEÇÃO DE PERFIL ============
+function entrarNoApp() {
+  if (currentUser.dualAccess) {
+    document.getElementById('perfil-nome').textContent = 'Olá, ' + currentUser.nome + '!';
+    showScreen('s-perfil');
+  } else if (currentUser.tipo === 'sup') {
+    showScreen('s-sup-home');
+    renderSupHome();
+  } else {
+    showScreen('s-prom-home');
+    renderPromHome();
+  }
+}
+
+function escolherPerfil(tipo) {
+  currentUser.tipoAtual = tipo;
+  if (tipo === 'sup') {
+    showScreen('s-sup-home');
+    renderSupHome();
+  } else {
+    showScreen('s-prom-home');
+    renderPromHome();
+  }
+}
+
+
+
 function supTab(tab, el) {
   supTabAtual = tab;
   document.querySelectorAll('#s-sup-home .tab').forEach(t => t.classList.remove('active'));
