@@ -454,9 +454,18 @@ let supaOnline = false;
 
 async function checkSupabase() {
   try {
-    const { error } = await supa.from('pesquisas').select('id').limit(1);
-    supaOnline = !error;
-  } catch(e) { supaOnline = false; }
+    const { data, error } = await supa.from('pesquisas').select('id').limit(1);
+    if (error) {
+      console.error('Supabase check error:', JSON.stringify(error));
+      supaOnline = false;
+    } else {
+      console.log('Supabase conectado OK. Pesquisas no banco:', data ? data.length : 0);
+      supaOnline = true;
+    }
+  } catch(e) {
+    console.error('Supabase check exception:', e);
+    supaOnline = false;
+  }
   updateSyncIndicator();
   return supaOnline;
 }
@@ -488,11 +497,14 @@ async function carregarPesquisasNuvem() {
   if (!supaOnline) return;
   try {
     const { data: pesqs, error: e1 } = await supa.from('pesquisas').select('*');
-    if (e1) throw e1;
+    if (e1) { console.error('Erro carregar pesquisas:', JSON.stringify(e1)); throw e1; }
+    console.log('Pesquisas carregadas:', pesqs.length);
     const { data: prods, error: e2 } = await supa.from('produtos').select('*');
-    if (e2) throw e2;
+    if (e2) { console.error('Erro carregar produtos:', JSON.stringify(e2)); throw e2; }
+    console.log('Produtos carregados:', prods.length);
     const { data: coletas, error: e3 } = await supa.from('coletas').select('*');
-    if (e3) throw e3;
+    if (e3) { console.error('Erro carregar coletas:', JSON.stringify(e3)); throw e3; }
+    console.log('Coletas carregadas:', coletas.length);
 
     // Preserva fotos que estão no localStorage (não sobem para nuvem)
     const localPesqs = getData('pesquisas', []);
@@ -538,19 +550,32 @@ async function salvarPesquisaNuvem(p) {
 }
 
 async function salvarProdutoNuvem(prod, pesqId) {
-  if (!supaOnline) return false;
+  if (!supaOnline) {
+    showToast('⚠️ Supabase offline ao salvar produto', 4000);
+    return false;
+  }
   try {
     const prodId = prod.id || (pesqId + '_' + prod.ean);
-    const { error } = await supa.from('produtos').upsert({
+    console.log('Salvando produto:', prodId, prod.nome);
+    const { data, error } = await supa.from('produtos').upsert({
       id: prodId,
       pesquisa_id: pesqId,
       ean: prod.ean,
       nome: prod.nome,
-      foto: null  // fotos ficam só no localStorage para não estourar o banco
-    });
-    if (error) { console.error('Erro produto:', error); return false; }
+      foto: null
+    }).select();
+    if (error) {
+      console.error('Erro produto Supabase:', JSON.stringify(error));
+      showToast('❌ Erro: ' + (error.message || error.code || 'desconhecido'), 5000);
+      return false;
+    }
+    console.log('Produto salvo OK:', data);
     return true;
-  } catch(e) { console.error('Exceção produto:', e); return false; }
+  } catch(e) {
+    console.error('Exceção produto:', e);
+    showToast('❌ Exceção: ' + e.message, 5000);
+    return false;
+  }
 }
 
 async function salvarColetaNuvem(coleta, prodId, pesqId) {
