@@ -311,24 +311,41 @@
   </div>
 </div>
 
-<!-- MODAL: PREENCHER PREÇO -->
-<div id="modal-preco" class="modal-overlay">
+<!-- MODAL: INICIAR PESQUISA (sessão de loja) -->
+<div id="modal-iniciar" class="modal-overlay">
   <div class="modal">
-    <h3 id="modal-preco-titulo">Preencher preço</h3>
-    <div id="modal-preco-prod" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;"></div>
+    <h3>Iniciar Pesquisa</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Informe a loja onde você está agora. Não vai precisar repetir para cada produto.</p>
     <div class="field">
-      <label>Loja</label>
-      <input type="text" id="mp-loja" placeholder="Nome da loja">
+      <label>Nome da loja</label>
+      <input type="text" id="ini-loja" placeholder="Ex: Mateus Cohab">
     </div>
     <div class="field">
       <label>Bandeira</label>
-      <select id="mp-bandeira">
+      <select id="ini-bandeira">
         <option value="">Selecione a bandeira</option>
         <option value="MIX">MIX</option>
         <option value="SUPER">SUPER</option>
         <option value="CAMINOS">CAMINOS</option>
         <option value="HIPER">HIPER</option>
+        <option value="SPAZZIO">SPAZZIO</option>
       </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-iniciar')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarIniciarPesquisa()">Iniciar coleta</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PREENCHER PREÇO -->
+<div id="modal-preco" class="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-preco-titulo">Preencher preço</h3>
+    <div id="modal-preco-prod" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;"></div>
+    <div id="mp-loja-info" style="background:var(--bg3);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:20px;">🏪</span>
+      <div><p id="mp-loja-nome" style="font-size:14px;font-weight:600;"></p><p id="mp-loja-bandeira" style="font-size:12px;color:var(--muted);margin-top:2px;"></p></div>
     </div>
     <div class="field">
       <label>Preço encontrado (R$)</label>
@@ -408,6 +425,7 @@ let coletarPesqId = null;
 let coletarProdIdx = null;
 let supTabAtual = 'ativas';
 let cameraPermitida = false;
+let sessaoLoja = null; // { pesqId, loja, bandeira } - sessão ativa do promotor
 
 // ============ STORAGE ============
 function getData(key, def) {
@@ -483,6 +501,7 @@ function doLogin() {
 
 function logout() {
   currentUser = null;
+  sessaoLoja = null;
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   showScreen('s-login');
@@ -726,6 +745,31 @@ function encerrarPesquisa() {
 }
 
 // ============ PROMOTOR ============
+function abrirIniciarPesquisa(id) {
+  coletarPesqId = id;
+  document.getElementById('ini-loja').value = '';
+  document.getElementById('ini-bandeira').value = '';
+  // Pre-fill if same pesq already has a session
+  if (sessaoLoja && sessaoLoja.pesqId === id) {
+    document.getElementById('ini-loja').value = sessaoLoja.loja;
+    document.getElementById('ini-bandeira').value = sessaoLoja.bandeira;
+  }
+  openModal('modal-iniciar');
+}
+
+function confirmarIniciarPesquisa() {
+  const loja = document.getElementById('ini-loja').value.trim();
+  const bandeira = document.getElementById('ini-bandeira').value;
+  if (!loja) return alert('Informe o nome da loja');
+  if (!bandeira) return alert('Selecione a bandeira');
+  sessaoLoja = { pesqId: coletarPesqId, loja, bandeira };
+  closeModal('modal-iniciar');
+  const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
+  document.getElementById('coletar-titulo').textContent = p.nome;
+  renderColetar();
+  showScreen('s-prom-coletar');
+}
+
 function renderPromHome() {
   document.getElementById('prom-nome').textContent = currentUser.nome;
   const pesqs = getData('pesquisas', []).filter(p => p.status === 'ativa');
@@ -736,14 +780,28 @@ function renderPromHome() {
   }
   list.innerHTML = `<p class="section-title">Pesquisas abertas</p>` + pesqs.map(p => {
     const total = p.produtos.length;
-    const coletasMinhas = p.produtos.filter(pr => pr.coletas && pr.coletas.some(c => c.promotor === currentUser.nome)).length;
-    return `<div class="pesq-card" onclick="abrirColetar('${p.id}')">
-      <div class="pesq-card-header">
-        <div><h3>${p.nome}</h3><p>${total} produto${total!==1?'s':''} para pesquisar</p></div>
+    const minhasColetas = p.produtos.flatMap(pr => (pr.coletas||[]).filter(c => c.promotor === currentUser.nome));
+    const produtosColetados = p.produtos.filter(pr => (pr.coletas||[]).some(c => c.promotor === currentUser.nome)).length;
+    const minhasLojas = [...new Set(minhasColetas.map(c => c.loja))];
+    return `<div class="pesq-card">
+      <div class="pesq-card-header" onclick="abrirColetar('${p.id}')">
+        <div><h3>${p.nome}</h3><p>${total} produto${total!==1?'s':''}</p></div>
         <span class="status-badge status-ativa">ativa</span>
       </div>
-      ${p.obs ? `<p style="font-size:12px;color:var(--amber);margin-top:6px;">📌 ${p.obs}</p>` : ''}
-      ${coletasMinhas > 0 ? `<div style="font-size:12px;color:var(--green);margin-top:6px;">✓ Você coletou ${coletasMinhas} produto${coletasMinhas!==1?'s':''}</div>` : ''}
+      ${p.obs ? `<p style="font-size:12px;color:var(--amber);margin-top:8px;">📌 ${p.obs}</p>` : ''}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <div style="flex:1;background:var(--bg3);border-radius:8px;padding:8px 10px;min-width:80px;">
+          <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Lojas</p>
+          <p style="font-size:18px;font-weight:700;color:var(--blue);">${minhasLojas.length}</p>
+          <p style="font-size:11px;color:var(--muted);">${minhasLojas.length>0?minhasLojas.slice(0,2).join(', ')+(minhasLojas.length>2?'...':''):'nenhuma'}</p>
+        </div>
+        <div style="flex:1;background:var(--bg3);border-radius:8px;padding:8px 10px;min-width:80px;">
+          <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Produtos</p>
+          <p style="font-size:18px;font-weight:700;color:var(--green);">${produtosColetados}/${total}</p>
+          <p style="font-size:11px;color:var(--muted);">${minhasColetas.length} coleta${minhasColetas.length!==1?'s':''} feita${minhasColetas.length!==1?'s':''}</p>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:10px;" onclick="abrirIniciarPesquisa('${p.id}')">🏪 Iniciar pesquisa em uma loja</button>
     </div>`;
   }).join('');
 }
@@ -765,32 +823,102 @@ function renderColetar() {
     return;
   }
 
+  const sessaoAtiva = sessaoLoja && sessaoLoja.pesqId === coletarPesqId;
+  const lojaAtiva = sessaoAtiva ? sessaoLoja.loja : null;
+  const bandeiraAtiva = sessaoAtiva ? sessaoLoja.bandeira : null;
+
+  // Abas Lojas / Produtos
+  const minhasColetas = p.produtos.flatMap(pr => (pr.coletas||[]).filter(c => c.promotor === currentUser.nome));
+  const minhasLojas = [...new Set(minhasColetas.map(c => c.loja))];
+  const produtosColetados = p.produtos.filter(pr => (pr.coletas||[]).some(c => c.promotor === currentUser.nome)).length;
+
   content.innerHTML = `
-    <div class="alert alert-warn" style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="openScannerProm()">
+    ${sessaoAtiva
+      ? `<div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+          <div><p style="font-size:13px;font-weight:600;">🏪 ${lojaAtiva}</p><p style="font-size:11px;color:var(--muted);">${bandeiraAtiva} · Sessão ativa</p></div>
+          <button onclick="trocarLoja()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;">Trocar</button>
+        </div>`
+      : `<div class="alert alert-warn" style="cursor:pointer;" onclick="abrirIniciarPesquisa('${p.id}')">⚠️ Nenhuma loja selecionada. Toque para iniciar.</div>`
+    }
+    <div class="alert alert-warn" style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px;" onclick="openScannerProm()">
       <span style="font-size:22px;">📷</span>
       <div><strong style="font-size:14px;">Escanear produto</strong><br><span style="font-size:12px;opacity:0.8;">Câmera para identificar automaticamente</span></div>
     </div>
-    <p class="section-title">Produtos da pesquisa</p>`;
+    <div style="display:flex;gap:0;background:var(--bg2);border-radius:10px;margin-bottom:12px;overflow:hidden;border:1px solid var(--border);">
+      <button id="tab-produtos" onclick="coletarTab('produtos')" style="flex:1;padding:9px;font-size:13px;background:var(--red);color:#fff;border:none;cursor:pointer;font-weight:600;">Produtos (${p.produtos.length})</button>
+      <button id="tab-lojas" onclick="coletarTab('lojas')" style="flex:1;padding:9px;font-size:13px;background:none;color:var(--muted);border:none;cursor:pointer;">Lojas (${minhasLojas.length})</button>
+    </div>
+    <div id="coletar-tab-content"></div>`;
 
-  p.produtos.forEach((prod, idx) => {
-    const minhaColeta = prod.coletas && prod.coletas.find(c => c.promotor === currentUser.nome);
+  renderColetarTab('produtos', p, lojaAtiva, bandeiraAtiva);
+}
+
+function trocarLoja() {
+  openModal('modal-iniciar');
+  document.getElementById('ini-loja').value = sessaoLoja ? sessaoLoja.loja : '';
+  document.getElementById('ini-bandeira').value = sessaoLoja ? sessaoLoja.bandeira : '';
+}
+
+function coletarTab(tab) {
+  const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
+  const sessaoAtiva = sessaoLoja && sessaoLoja.pesqId === coletarPesqId;
+  document.getElementById('tab-produtos').style.background = tab === 'produtos' ? 'var(--red)' : 'none';
+  document.getElementById('tab-produtos').style.color = tab === 'produtos' ? '#fff' : 'var(--muted)';
+  document.getElementById('tab-lojas').style.background = tab === 'lojas' ? 'var(--red)' : 'none';
+  document.getElementById('tab-lojas').style.color = tab === 'lojas' ? '#fff' : 'var(--muted)';
+  renderColetarTab(tab, p, sessaoAtiva ? sessaoLoja.loja : null, sessaoAtiva ? sessaoLoja.bandeira : null);
+}
+
+function renderColetarTab(tab, p, lojaAtiva, bandeiraAtiva) {
+  const tabContent = document.getElementById('coletar-tab-content');
+  if (!tabContent) return;
+
+  if (tab === 'lojas') {
+    const minhasColetas = p.produtos.flatMap(pr => (pr.coletas||[]).filter(c => c.promotor === currentUser.nome));
+    const minhasLojas = [...new Set(minhasColetas.map(c => c.loja))];
+    if (minhasLojas.length === 0) {
+      tabContent.innerHTML = `<div class="empty"><div class="icon">🏪</div><p>Você ainda não pesquisou nenhuma loja.</p></div>`;
+      return;
+    }
+    tabContent.innerHTML = minhasLojas.map(loja => {
+      const coletasLoja = minhasColetas.filter(c => c.loja === loja);
+      const bandeira = coletasLoja[0]?.bandeira || '';
+      const datas = [...new Set(coletasLoja.map(c => c.data))].join(', ');
+      return `<div class="loja-row" style="flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+          <span style="font-size:14px;font-weight:600;">🏪 ${loja}</span>
+          <span style="background:var(--bg);color:var(--muted);font-size:11px;padding:2px 8px;border-radius:6px;">${bandeira}</span>
+        </div>
+        <p style="font-size:12px;color:var(--muted);">${coletasLoja.length} produto${coletasLoja.length!==1?'s':''} coletado${coletasLoja.length!==1?'s':''} · ${datas}</p>
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // Tab produtos
+  tabContent.innerHTML = p.produtos.map((prod, i) => {
+    const minhaColeta = (prod.coletas||[]).find(c => c.promotor === currentUser.nome);
     const totalColetas = prod.coletas ? prod.coletas.length : 0;
-    content.innerHTML += `
-      <div class="prod-card" onclick="abrirPreco(${idx})" style="cursor:pointer;">
+    const coletadoNestaLoja = lojaAtiva ? (prod.coletas||[]).find(c => c.promotor === currentUser.nome && c.loja === lojaAtiva) : null;
+    return `
+      <div class="prod-card" onclick="abrirPreco(${i})" style="cursor:pointer;">
         <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
         <div class="prod-info">
           <h4>${prod.nome}</h4>
           <p>EAN: ${prod.ean}</p>
-          ${totalColetas > 0 ? `<p style="color:var(--muted);font-size:11px;">${totalColetas} coleta${totalColetas!==1?'s':''} no total</p>` : ''}
+          ${totalColetas > 0 ? `<p style="color:var(--muted);font-size:11px;">${totalColetas} coleta${totalColetas!==1?'s':''} total</p>` : ''}
         </div>
         <div style="text-align:right;">
-          ${minhaColeta
-            ? `<span class="prod-price">R$ ${parseFloat(minhaColeta.preco).toFixed(2)}</span><br><span style="font-size:10px;color:var(--muted);">${minhaColeta.loja}</span>`
-            : `<span class="prod-price empty">Toque p/<br>coletar</span>`}
+          ${coletadoNestaLoja
+            ? `<span class="prod-price">R$ ${parseFloat(coletadoNestaLoja.preco).toFixed(2)}</span><br><span style="font-size:10px;color:var(--green);">✓ esta loja</span>`
+            : minhaColeta
+              ? `<span style="font-size:12px;color:var(--amber);font-weight:600;">R$ ${parseFloat(minhaColeta.preco).toFixed(2)}</span><br><span style="font-size:10px;color:var(--muted);">${minhaColeta.loja}</span>`
+              : `<span class="prod-price empty">Toque p/<br>coletar</span>`}
         </div>
       </div>`;
-  });
+  }).join('');
 }
+
 
 function openScannerProm() {
   if (!cameraPermitida) {
@@ -801,6 +929,10 @@ function openScannerProm() {
 }
 
 function abrirPreco(idx) {
+  if (!sessaoLoja || sessaoLoja.pesqId !== coletarPesqId) {
+    abrirIniciarPesquisa(coletarPesqId);
+    return;
+  }
   coletarProdIdx = idx;
   const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
   const prod = p.produtos[idx];
@@ -808,20 +940,18 @@ function abrirPreco(idx) {
   document.getElementById('modal-preco-prod').innerHTML = `
     <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
     <div><p style="font-size:14px;font-weight:600;">${prod.nome}</p><p style="font-size:12px;color:var(--muted);">EAN: ${prod.ean}</p></div>`;
+  document.getElementById('mp-loja-nome').textContent = sessaoLoja.loja;
+  document.getElementById('mp-loja-bandeira').textContent = sessaoLoja.bandeira;
   document.getElementById('mp-preco').value = '';
   document.getElementById('mp-obs').value = '';
-  document.getElementById('mp-loja').value = '';
-  document.getElementById('mp-bandeira').value = '';
   openModal('modal-preco');
 }
 
 function salvarPreco() {
-  const loja = document.getElementById('mp-loja').value.trim();
-  const bandeira = document.getElementById('mp-bandeira').value;
   const preco = document.getElementById('mp-preco').value;
-  if (!loja) return alert('Informe o nome da loja');
-  if (!bandeira) return alert('Selecione a bandeira');
   if (!preco || parseFloat(preco) <= 0) return alert('Informe o preço');
+  const loja = sessaoLoja.loja;
+  const bandeira = sessaoLoja.bandeira;
   const pesqs = getData('pesquisas', []);
   const p = pesqs.find(x => x.id === coletarPesqId);
   if (!p.produtos[coletarProdIdx].coletas) p.produtos[coletarProdIdx].coletas = [];
