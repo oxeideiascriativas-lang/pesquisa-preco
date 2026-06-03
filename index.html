@@ -494,12 +494,22 @@ async function carregarPesquisasNuvem() {
     const { data: coletas, error: e3 } = await supa.from('coletas').select('*');
     if (e3) throw e3;
 
-    // Monta estrutura local
+    // Preserva fotos que estão no localStorage (não sobem para nuvem)
+    const localPesqs = getData('pesquisas', []);
+    const getFotoLocal = (pesqId, ean) => {
+      const lp = localPesqs.find(x => x.id === pesqId);
+      if (!lp) return null;
+      const lpr = lp.produtos.find(x => x.ean === ean);
+      return lpr ? lpr.foto : null;
+    };
+
+    // Monta estrutura local mesclando nuvem + fotos locais
     const pesquisas = pesqs.map(p => ({
       id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
       criadaEm: p.criada_em, encerradaEm: p.encerrada_em || '',
       produtos: prods.filter(pr => pr.pesquisa_id === p.id).map(pr => ({
-        id: pr.id, ean: pr.ean, nome: pr.nome, foto: pr.foto || null,
+        id: pr.id, ean: pr.ean, nome: pr.nome,
+        foto: getFotoLocal(p.id, pr.ean),  // recupera foto do localStorage
         coletas: coletas.filter(c => c.produto_id === pr.id).map(c => ({
           loja: c.loja, bandeira: c.bandeira || '', preco: c.preco,
           obs: c.obs || '', promotor: c.promotor, data: c.data, hora: c.hora
@@ -530,13 +540,17 @@ async function salvarPesquisaNuvem(p) {
 async function salvarProdutoNuvem(prod, pesqId) {
   if (!supaOnline) return false;
   try {
-    await supa.from('produtos').upsert({
-      id: prod.id || (pesqId + '_' + prod.ean),
-      pesquisa_id: pesqId, ean: prod.ean, nome: prod.nome,
-      foto: prod.foto ? prod.foto.substring(0, 500) : null
+    const prodId = prod.id || (pesqId + '_' + prod.ean);
+    const { error } = await supa.from('produtos').upsert({
+      id: prodId,
+      pesquisa_id: pesqId,
+      ean: prod.ean,
+      nome: prod.nome,
+      foto: null  // fotos ficam só no localStorage para não estourar o banco
     });
+    if (error) { console.error('Erro produto:', error); return false; }
     return true;
-  } catch(e) { console.error(e); return false; }
+  } catch(e) { console.error('Exceção produto:', e); return false; }
 }
 
 async function salvarColetaNuvem(coleta, prodId, pesqId) {
@@ -571,18 +585,25 @@ async function flushQueue() {
   const pesqs = getData('pesquisas', []);
   let count = 0;
   for (const item of pendentes) {
-    const p = pesqs.find(x => x.id === item.pesqId);
-    if (!p) { item.synced = true; continue; }
-    const prod = p.produtos[item.prodIdx];
-    if (!prod) { item.synced = true; continue; }
-    const prodId = item.pesqId + '_' + prod.ean;
-    const ok = await salvarColetaNuvem(item.coleta, prodId, item.pesqId);
-    if (ok) { item.synced = true; count++; }
+    if (item.tipo === 'produto') {
+      // Produto offline pendente
+      const ok = await salvarProdutoNuvem(item.prod, item.pesqId);
+      if (ok) { item.synced = true; count++; }
+    } else {
+      // Coleta offline pendente
+      const p = pesqs.find(x => x.id === item.pesqId);
+      if (!p) { item.synced = true; continue; }
+      const prod = p.produtos[item.prodIdx];
+      if (!prod) { item.synced = true; continue; }
+      const prodId = item.pesqId + '_' + prod.ean;
+      const ok = await salvarColetaNuvem(item.coleta, prodId, item.pesqId);
+      if (ok) { item.synced = true; count++; }
+    }
   }
   setQueue(q);
   if (count > 0) {
     updateSyncIndicator();
-    showToast(`✓ ${count} coleta${count!==1?'s':''} enviada${count!==1?'s':''} para a nuvem`);
+    showToast(`✓ ${count} item${count!==1?'s':''} sincronizado${count!==1?'s':''} para a nuvem`);
   }
 }
 
@@ -947,7 +968,12 @@ function criarPesquisa() {
   document.getElementById('np-nome').value = '';
   document.getElementById('np-obs').value = '';
   closeModal('modal-nova-pesq');
-  salvarPesquisaNuvem(nova);
+  if (supaOnline) {
+    salvarPesquisaNuvem(nova).then(ok => {
+      if (!ok) showToast('⚠️ Pesquisa salva localmente. Sincronize quando possível.', 4000);
+      else showToast('✓ Pesquisa salva na nuvem');
+    });
+  }
   renderSupHome();
 }
 
@@ -985,8 +1011,13 @@ function deletarProd(idx) {
   if (!confirm('Remover este produto?')) return;
   const pesqs = getData('pesquisas', []);
   const p = pesqs.find(x => x.id === currentPesqId);
+  const prod = p.produtos[idx];
+  const prodId = prod.id || (currentPesqId + '_' + prod.ean);
   p.produtos.splice(idx, 1);
   setData('pesquisas', pesqs);
+  if (supaOnline) supa.from('produtos').delete().eq('id', prodId).then(({error}) => {
+    if (error) console.error('Erro ao deletar produto:', error);
+  });
   renderDetalhe();
 }
 
