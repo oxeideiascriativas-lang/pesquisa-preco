@@ -1021,15 +1021,22 @@ function addProduto() {
   const pesqs = getData('pesquisas', []);
   const p = pesqs.find(x => x.id === currentPesqId);
   if (p.produtos.find(x => x.ean === ean)) return alert('Produto já cadastrado nesta pesquisa');
-  p.produtos.push({ ean, nome, foto: fotoBase64, coletas: [] });
+  const novoProd = { id: currentPesqId + '_' + ean, ean, nome, foto: fotoBase64, coletas: [] };
+  p.produtos.push(novoProd);
   setData('pesquisas', pesqs);
   document.getElementById('ap-ean').value = '';
   document.getElementById('ap-nome').value = '';
   const prev = document.getElementById('foto-preview');
   prev.style.display = 'none'; prev.src = '';
   fotoBase64 = null;
+  document.getElementById('foto-input').value = '';
   closeModal('modal-add-prod');
   renderDetalhe();
+  // Salva na nuvem
+  salvarProdutoNuvem(novoProd, currentPesqId).then(ok => {
+    if (ok) showToast('✓ Produto salvo na nuvem');
+    else showToast('📴 Salvo localmente. Sincronizará quando possível.', 4000);
+  });
 }
 
 function deletarProd(idx) {
@@ -1576,24 +1583,4 @@ salvarPreco = function() {
           // Mark as synced in queue
           const q = getQueue();
           const item = q.filter(x => !x.synced).pop();
-          if (item) { item.synced = true; setQueue(q); }
-          updateSyncIndicator();
-          showToast('✓ Coleta salva na nuvem');
-        } else {
-          showToast('📴 Salvo offline. Sincronizará em breve.', 4000);
-        }
-      });
-    } else {
-      updateSyncIndicator();
-      showToast('📴 Salvo offline. Sincronizará quando conectar.', 4000);
-    }
-  }
-};
-
-// Init on load
-window.addEventListener('load', () => {
-  if (navigator.onLine) checkSupabase();
-});
-</script>
-</body>
-</html>
+          if 
