@@ -190,6 +190,30 @@
   </div>
 </div>
 
+<!-- SELEÇÃO DE PERFIL (supervisores com duplo acesso) -->
+<div id="s-perfil" class="screen">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:2rem;">
+    <div style="text-align:center;margin-bottom:2.5rem;">
+      <div style="width:72px;height:72px;background:var(--red);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:32px;">📊</div>
+      <h2 id="perfil-nome" style="font-size:20px;font-weight:700;"></h2>
+      <p style="color:var(--muted);font-size:14px;margin-top:4px;">Como deseja entrar hoje?</p>
+    </div>
+    <div style="width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px;">
+      <button onclick="escolherPerfil('sup')" style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:left;cursor:pointer;transition:border-color 0.15s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div style="font-size:28px;margin-bottom:8px;">🗂️</div>
+        <p style="font-size:16px;font-weight:700;color:var(--text);">Supervisionar Pesquisas</p>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;">Criar pesquisas, acompanhar coletas e exportar relatórios</p>
+      </button>
+      <button onclick="escolherPerfil('prom')" style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:left;cursor:pointer;transition:border-color 0.15s;" onmouseover="this.style.borderColor='var(--green)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div style="font-size:28px;margin-bottom:8px;">🏪</div>
+        <p style="font-size:16px;font-weight:700;color:var(--text);">Realizar Pesquisa</p>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;">Ir ao PDV e coletar preços dos produtos</p>
+      </button>
+    </div>
+    <button onclick="logout()" style="margin-top:24px;background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer;">Sair</button>
+  </div>
+</div>
+
 <!-- SUPERVISOR HOME -->
 <div id="s-sup-home" class="screen">
   <div class="topbar">
@@ -198,6 +222,7 @@
       <span class="badge" id="badge-ativas">0</span>
     </div>
     <div class="topbar-right">
+      <button class="icon-btn" id="btn-trocar-modo-sup" style="display:none;" onclick="trocarModo()" title="Trocar modo">🔄</button>
       <button class="icon-btn" onclick="abrirAlterarSenha()" title="Alterar senha">🔑</button>
       <button class="icon-btn" onclick="logout()">Sair</button>
     </div>
@@ -246,6 +271,7 @@
     </div>
     <div class="topbar-right">
       <span class="sync-badge" style="display:none;font-size:11px;color:var(--amber);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:4px 8px;"></span>
+      <button class="icon-btn" id="btn-trocar-modo-prom" style="display:none;" onclick="trocarModo()" title="Trocar modo">🔄</button>
       <button class="icon-btn" onclick="abrirAlterarSenha()" title="Alterar senha">🔑</button>
       <button class="icon-btn" onclick="logout()">Sair</button>
     </div>
@@ -410,8 +436,8 @@
 <script>
 // ============ USUÁRIOS PADRÃO ============
 const USUARIOS_PADRAO = {
-  'bruno':     { senha: 'sup123',   tipo: 'sup',  nome: 'Bruno' },
-  'adelaide':  { senha: 'sup123',   tipo: 'sup',  nome: 'Adelaide' },
+  'bruno':     { senha: 'sup123',   tipo: 'sup',  nome: 'Bruno',    dualAccess: true },
+  'adelaide':  { senha: 'sup123',   tipo: 'sup',  nome: 'Adelaide', dualAccess: true },
   'tiago':     { senha: 'promo123', tipo: 'prom', nome: 'Tiago' },
   'luciana':   { senha: 'promo123', tipo: 'prom', nome: 'Luciana' },
   'luellen':   { senha: 'promo123', tipo: 'prom', nome: 'Luellen' },
@@ -635,19 +661,10 @@ function doLogin() {
     currentUser = { ...user, usuario: u };
     err.style.display = 'none';
     verificarCamera();
-    if (currentUser.tipo === 'sup') {
-      showScreen('s-sup-home');
-      checkSupabase().then(online => {
-        if (online) carregarPesquisasNuvem().then(() => renderSupHome());
-        else renderSupHome();
-      });
-    } else {
-      showScreen('s-prom-home');
-      checkSupabase().then(online => {
-        if (online) carregarPesquisasNuvem().then(() => renderPromHome());
-        else renderPromHome();
-      });
-    }
+    checkSupabase().then(online => {
+      if (online) carregarPesquisasNuvem().then(() => entrarNoApp());
+      else entrarNoApp();
+    });
   } else {
     err.style.display = 'block';
   }
@@ -659,6 +676,12 @@ function logout() {
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   showScreen('s-login');
+}
+
+function trocarModo() {
+  // Volta para tela de seleção sem fazer logout
+  document.getElementById('perfil-nome').textContent = 'Olá, ' + currentUser.nome + '!';
+  showScreen('s-perfil');
 }
 
 // ============ ALTERAR SENHA ============
@@ -715,6 +738,8 @@ function supTab(tab, el) {
 }
 
 function renderSupHome() {
+  const btnTrocar = document.getElementById('btn-trocar-modo-sup');
+  if (btnTrocar) btnTrocar.style.display = currentUser && currentUser.dualAccess ? '' : 'none';
   const pesqs = getData('pesquisas', []);
   const filtradas = pesqs.filter(p => supTabAtual === 'ativas' ? p.status === 'ativa' : p.status === 'encerrada');
   document.getElementById('badge-ativas').textContent = pesqs.filter(p => p.status === 'ativa').length;
@@ -978,6 +1003,8 @@ function confirmarIniciarPesquisa() {
 }
 
 function renderPromHome() {
+  const btnTrocar = document.getElementById('btn-trocar-modo-prom');
+  if (btnTrocar) btnTrocar.style.display = currentUser && currentUser.dualAccess ? '' : 'none';
   document.getElementById('prom-nome').textContent = currentUser.nome;
   const pesqs = getData('pesquisas', []).filter(p => p.status === 'ativa');
   const list = document.getElementById('prom-list');
