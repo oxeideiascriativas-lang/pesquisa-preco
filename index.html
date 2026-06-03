@@ -839,9 +839,13 @@ function salvarPreco() {
   renderColetar();
 }
 
-// ============ SCANNER (ZXing) ============
+// ============ SCANNER (ZXing + stream manual com foco) ============
 let zxingReader = null;
 let scannerAtivo = false;
+let scannerStream = null;
+let scannerAnimFrame = null;
+let scanCanvas = null;
+let scanCtx = null;
 
 function openScanner(mode) {
   if (!cameraPermitida) {
@@ -851,44 +855,54 @@ function openScanner(mode) {
   scannerMode = mode;
   if (mode === 'sup') closeModal('modal-add-prod');
   document.getElementById('scanner-container').classList.add('open');
-  startZXing();
+  startScanner();
 }
 
 function closeScanner() {
   document.getElementById('scanner-container').classList.remove('open');
-  stopZXing();
+  stopScanner();
   if (scannerMode === 'sup') openModal('modal-add-prod');
 }
 
-function startZXing() {
+async function startScanner() {
   if (scannerAtivo) return;
   const video = document.getElementById('scanner-video');
   try {
+    // Pede stream com foco contínuo explícito
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        advanced: [{ focusMode: 'continuous' }]
+      }
+    };
+    scannerStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = scannerStream;
+    await video.play();
+
+    // Tenta aplicar foco contínuo via applyConstraints após obter a track
+    const track = scannerStream.getVideoTracks()[0];
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch(e) {}
+
+    // Cria canvas off-screen para processar frames
+    scanCanvas = document.createElement('canvas');
+    scanCtx = scanCanvas.getContext('2d');
+
+    // Configura ZXing
     const hints = new Map();
-    const formats = [
-      ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.EAN_8,
-      ZXing.BarcodeFormat.CODE_128,
-      ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.UPC_A,
-      ZXing.BarcodeFormat.UPC_E,
-    ];
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+    ]);
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
     zxingReader = new ZXing.BrowserMultiFormatReader(hints);
-    zxingReader.decodeFromConstraints(
-      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: 'continuous' } },
-      video,
-      (result, err) => {
-        if (result) {
-          const code = result.getText();
-          if (navigator.vibrate) navigator.vibrate(100);
-          closeScanner();
-          handleBarcode(code);
-        }
-      }
-    );
+
     scannerAtivo = true;
+    processFrame();
   } catch(e) {
     cameraPermitida = false;
     localStorage.setItem('cam_permission', 'denied');
@@ -897,11 +911,39 @@ function startZXing() {
   }
 }
 
-function stopZXing() {
-  if (zxingReader) { try { zxingReader.reset(); } catch(e){} zxingReader = null; }
+function processFrame() {
+  if (!scannerAtivo) return;
   const video = document.getElementById('scanner-video');
-  if (video && video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    scanCanvas.width = video.videoWidth;
+    scanCanvas.height = video.videoHeight;
+    scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+    try {
+      const imgData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+      const luminance = new ZXing.HTMLCanvasElementLuminanceSource(scanCanvas);
+      const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
+      const result = zxingReader.decode(binaryBitmap);
+      if (result) {
+        if (navigator.vibrate) navigator.vibrate(100);
+        stopScanner();
+        document.getElementById('scanner-container').classList.remove('open');
+        if (scannerMode === 'sup') openModal('modal-add-prod');
+        handleBarcode(result.getText());
+        return;
+      }
+    } catch(e) {}
+  }
+  scannerAnimFrame = requestAnimationFrame(processFrame);
+}
+
+function stopScanner() {
   scannerAtivo = false;
+  if (scannerAnimFrame) { cancelAnimationFrame(scannerAnimFrame); scannerAnimFrame = null; }
+  if (scannerStream) { scannerStream.getTracks().forEach(t => t.stop()); scannerStream = null; }
+  const video = document.getElementById('scanner-video');
+  if (video) { video.srcObject = null; }
+  zxingReader = null;
+  scanCanvas = null; scanCtx = null;
 }
 
 function handleBarcode(code) {
