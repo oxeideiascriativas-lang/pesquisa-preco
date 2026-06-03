@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>PesquisaPreço</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg: #0A0F2E; --bg2: #111835; --bg3: #1A2448; --card: #1E2B52;
@@ -244,6 +245,7 @@
       <h2>Olá, <span id="prom-nome"></span> 👋</h2>
     </div>
     <div class="topbar-right">
+      <span class="sync-badge" style="display:none;font-size:11px;color:var(--amber);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:4px 8px;"></span>
       <button class="icon-btn" onclick="abrirAlterarSenha()" title="Alterar senha">🔑</button>
       <button class="icon-btn" onclick="logout()">Sair</button>
     </div>
@@ -258,6 +260,7 @@
       <button class="back-btn" onclick="goBack('s-prom-home')">←</button>
       <h2 id="coletar-titulo">Coletar</h2>
     </div>
+    <span class="sync-badge" style="display:none;font-size:11px;color:var(--amber);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:4px 8px;"></span>
   </div>
   <div class="content" id="coletar-content"></div>
 </div>
@@ -417,6 +420,146 @@ const USUARIOS_PADRAO = {
   'paula':     { senha: 'promo123', tipo: 'prom', nome: 'Paula' },
 };
 
+// ============ SUPABASE ============
+const SUPA_URL = 'https://owgjivmcwhncasoyfywj.supabase.co';
+const SUPA_KEY = 'sb_publishable_s7HiQbxng_pJ2FAC7XedrQ_8ooWuhVk';
+const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+let supaOnline = false;
+
+async function checkSupabase() {
+  try {
+    const { error } = await supa.from('pesquisas').select('id').limit(1);
+    supaOnline = !error;
+  } catch(e) { supaOnline = false; }
+  updateSyncIndicator();
+  return supaOnline;
+}
+
+function updateSyncIndicator() {
+  document.querySelectorAll('.sync-badge').forEach(el => {
+    const q = getQueue().filter(x => !x.synced);
+    if (!supaOnline) {
+      el.textContent = '📴 offline';
+      el.style.display = '';
+      el.style.color = 'var(--amber)';
+    } else if (q.length > 0) {
+      el.textContent = `⏳ ${q.length} p/ sincronizar`;
+      el.style.display = '';
+      el.style.color = 'var(--amber)';
+    } else {
+      el.textContent = '🟢 sincronizado';
+      el.style.display = '';
+      el.style.color = 'var(--green)';
+      setTimeout(() => {
+        el.style.display = 'none';
+      }, 3000);
+    }
+  });
+}
+
+// ── Supabase READ ──────────────────────────────────────────────
+async function carregarPesquisasNuvem() {
+  if (!supaOnline) return;
+  try {
+    const { data: pesqs, error: e1 } = await supa.from('pesquisas').select('*');
+    if (e1) throw e1;
+    const { data: prods, error: e2 } = await supa.from('produtos').select('*');
+    if (e2) throw e2;
+    const { data: coletas, error: e3 } = await supa.from('coletas').select('*');
+    if (e3) throw e3;
+
+    // Monta estrutura local
+    const pesquisas = pesqs.map(p => ({
+      id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
+      criadaEm: p.criada_em, encerradaEm: p.encerrada_em || '',
+      produtos: prods.filter(pr => pr.pesquisa_id === p.id).map(pr => ({
+        id: pr.id, ean: pr.ean, nome: pr.nome, foto: pr.foto || null,
+        coletas: coletas.filter(c => c.produto_id === pr.id).map(c => ({
+          loja: c.loja, bandeira: c.bandeira || '', preco: c.preco,
+          obs: c.obs || '', promotor: c.promotor, data: c.data, hora: c.hora
+        }))
+      }))
+    }));
+
+    setData('pesquisas', pesquisas);
+    return pesquisas;
+  } catch(e) {
+    console.error('Erro ao carregar da nuvem:', e);
+    return null;
+  }
+}
+
+// ── Supabase WRITE ─────────────────────────────────────────────
+async function salvarPesquisaNuvem(p) {
+  if (!supaOnline) return false;
+  try {
+    await supa.from('pesquisas').upsert({
+      id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
+      criada_em: p.criadaEm, encerrada_em: p.encerradaEm || null
+    });
+    return true;
+  } catch(e) { console.error(e); return false; }
+}
+
+async function salvarProdutoNuvem(prod, pesqId) {
+  if (!supaOnline) return false;
+  try {
+    await supa.from('produtos').upsert({
+      id: prod.id || (pesqId + '_' + prod.ean),
+      pesquisa_id: pesqId, ean: prod.ean, nome: prod.nome,
+      foto: prod.foto ? prod.foto.substring(0, 500) : null
+    });
+    return true;
+  } catch(e) { console.error(e); return false; }
+}
+
+async function salvarColetaNuvem(coleta, prodId, pesqId) {
+  if (!supaOnline) return false;
+  try {
+    const id = prodId + '_' + coleta.promotor.replace(/\s/g,'') + '_' + coleta.data.replace(/\//g,'') + '_' + coleta.hora.replace(/:/g,'');
+    await supa.from('coletas').upsert({
+      id, produto_id: prodId, pesquisa_id: pesqId,
+      loja: coleta.loja, bandeira: coleta.bandeira || '',
+      preco: parseFloat(coleta.preco), obs: coleta.obs || '',
+      promotor: coleta.promotor, data: coleta.data, hora: coleta.hora
+    });
+    return true;
+  } catch(e) { console.error(e); return false; }
+}
+
+async function encerrarPesquisaNuvem(pesqId) {
+  if (!supaOnline) return;
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === pesqId);
+  if (!p) return;
+  await supa.from('pesquisas').update({ status: 'encerrada', encerrada_em: p.encerradaEm }).eq('id', pesqId);
+}
+
+// ── Sync queue flush ───────────────────────────────────────────
+async function flushQueue() {
+  if (!supaOnline) return;
+  const q = getQueue();
+  const pendentes = q.filter(x => !x.synced);
+  if (pendentes.length === 0) return;
+
+  const pesqs = getData('pesquisas', []);
+  let count = 0;
+  for (const item of pendentes) {
+    const p = pesqs.find(x => x.id === item.pesqId);
+    if (!p) { item.synced = true; continue; }
+    const prod = p.produtos[item.prodIdx];
+    if (!prod) { item.synced = true; continue; }
+    const prodId = item.pesqId + '_' + prod.ean;
+    const ok = await salvarColetaNuvem(item.coleta, prodId, item.pesqId);
+    if (ok) { item.synced = true; count++; }
+  }
+  setQueue(q);
+  if (count > 0) {
+    updateSyncIndicator();
+    showToast(`✓ ${count} coleta${count!==1?'s':''} enviada${count!==1?'s':''} para a nuvem`);
+  }
+}
+
 let currentUser = null;
 let currentPesqId = null;
 let scannerMode = null;
@@ -492,8 +635,19 @@ function doLogin() {
     currentUser = { ...user, usuario: u };
     err.style.display = 'none';
     verificarCamera();
-    if (currentUser.tipo === 'sup') { showScreen('s-sup-home'); renderSupHome(); }
-    else { showScreen('s-prom-home'); renderPromHome(); }
+    if (currentUser.tipo === 'sup') {
+      showScreen('s-sup-home');
+      checkSupabase().then(online => {
+        if (online) carregarPesquisasNuvem().then(() => renderSupHome());
+        else renderSupHome();
+      });
+    } else {
+      showScreen('s-prom-home');
+      checkSupabase().then(online => {
+        if (online) carregarPesquisasNuvem().then(() => renderPromHome());
+        else renderPromHome();
+      });
+    }
   } else {
     err.style.display = 'block';
   }
@@ -649,47 +803,86 @@ function abrirResumo() {
   showScreen('s-sup-resumo');
 }
 
-function renderResumo() {
+function renderResumo(filtroPromotor='', filtroLoja='') {
   const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
-  const content = document.getElementById('resumo-content');
-  const lojas = getLojasDaPesquisa(p);
+  const el = document.getElementById('resumo-content');
+
+  // Collect all coletas flat
+  let todasColetas = [];
+  p.produtos.forEach(prod => {
+    (prod.coletas||[]).forEach(c => todasColetas.push({ ...c, produto: prod.nome, ean: prod.ean }));
+  });
+
+  const todosPromotores = [...new Set(todasColetas.map(c => c.promotor))].sort();
+  const todasLojas = [...new Set(todasColetas.map(c => c.loja))].sort();
+
+  // Apply filters
+  let coletas = todasColetas;
+  if (filtroPromotor) coletas = coletas.filter(c => c.promotor === filtroPromotor);
+  if (filtroLoja) coletas = coletas.filter(c => c.loja === filtroLoja);
+
+  const lojasFiltered = [...new Set(coletas.map(c => c.loja))];
+  const produtosFiltered = [...new Set(coletas.map(c => c.ean))];
   const totalProd = p.produtos.length;
-  const totalColetas = p.produtos.reduce((acc, pr) => acc + (pr.coletas ? pr.coletas.length : 0), 0);
-  const produtosComColeta = p.produtos.filter(pr => pr.coletas && pr.coletas.length > 0).length;
+  const totalColetas = todasColetas.length;
 
   document.getElementById('btn-export-resumo').style.display = p.status === 'encerrada' ? '' : 'none';
 
-  content.innerHTML = `
-    <p style="font-size:16px;font-weight:700;margin-bottom:12px;">${p.nome}</p>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Lojas pesquisadas</div><div class="stat-value stat-blue">${lojas.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Total de coletas</div><div class="stat-value stat-green">${totalColetas}</div></div>
-      <div class="stat-card"><div class="stat-label">Produtos cobertos</div><div class="stat-value stat-amber">${produtosComColeta}/${totalProd}</div></div>
-      <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value ${p.status==='ativa'?'stat-green':'stat-red'}" style="font-size:15px;margin-top:8px;">${p.status.toUpperCase()}</div></div>
-    </div>`;
+  const promOptions = todosPromotores.map(pr =>
+    `<option value="${pr}" ${filtroPromotor===pr?'selected':''}>${pr}</option>`).join('');
+  const lojaOptions = todasLojas.map(l =>
+    `<option value="${l}" ${filtroLoja===l?'selected':''}>${l}</option>`).join('');
 
-  if (lojas.length > 0) {
-    content.innerHTML += `<p class="section-title">Lojas pesquisadas</p>`;
-    lojas.forEach(loja => {
-      const coletasDaLoja = [];
-      p.produtos.forEach(prod => {
-        if (prod.coletas) prod.coletas.filter(c => c.loja === loja).forEach(c => coletasDaLoja.push({ ...c, produto: prod.nome }));
-      });
-      const bandeira = coletasDaLoja[0]?.bandeira || '';
-      const promotores = [...new Set(coletasDaLoja.map(c => c.promotor))].join(', ');
-      content.innerHTML += `
-        <div class="loja-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
-          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
-            <span class="loja-nome">${loja} ${bandeira ? `<span style="background:var(--bg3);color:var(--muted);font-size:10px;padding:2px 7px;border-radius:4px;">${bandeira}</span>` : ''}</span>
-            <span style="font-size:12px;color:var(--muted);">${coletasDaLoja.length} coleta${coletasDaLoja.length!==1?'s':''}</span>
-          </div>
-          <div class="loja-meta">Promotor: ${promotores}</div>
-          ${coletasDaLoja.map(c => `<div style="display:flex;justify-content:space-between;width:100%;font-size:12px;padding-top:3px;border-top:1px solid var(--border);margin-top:3px;"><span style="color:var(--muted)">${c.produto}</span><span style="color:var(--green);font-weight:700;">R$ ${parseFloat(c.preco).toFixed(2)}</span></div>`).join('')}
-        </div>`;
-    });
-  } else {
-    content.innerHTML += `<div class="empty"><div class="icon">🏪</div><p>Nenhuma loja coletada ainda.</p></div>`;
-  }
+  const filtroAtivo = filtroPromotor || filtroLoja;
+
+  el.innerHTML = `
+    <p style="font-size:16px;font-weight:700;margin-bottom:12px;">${p.nome}</p>
+
+    <div class="stats-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Lojas pesquisadas</div><div class="stat-value stat-blue">${todasLojas.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Total de coletas</div><div class="stat-value stat-green">${totalColetas}</div></div>
+      <div class="stat-card"><div class="stat-label">Produtos cobertos</div><div class="stat-value stat-amber">${[...new Set(todasColetas.map(c=>c.ean))].length}/${totalProd}</div></div>
+      <div class="stat-card"><div class="stat-label">Promotores</div><div class="stat-value stat-blue">${todosPromotores.length}</div></div>
+    </div>
+
+    <div style="background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px;border:1px solid var(--border);">
+      <p style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🔍 Filtrar resultados</p>
+      <div class="field" style="margin-bottom:8px;">
+        <label>Promotor</label>
+        <select onchange="renderResumo(this.value, document.getElementById('filtro-loja').value)" id="filtro-promotor">
+          <option value="">Todos os promotores</option>
+          ${promOptions}
+        </select>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>Loja</label>
+        <select onchange="renderResumo(document.getElementById('filtro-promotor').value, this.value)" id="filtro-loja">
+          <option value="">Todas as lojas</option>
+          ${lojaOptions}
+        </select>
+      </div>
+      ${filtroAtivo ? `<button onclick="renderResumo('','')" style="margin-top:10px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;width:100%;">✕ Limpar filtros</button>` : ''}
+    </div>
+
+    ${filtroAtivo ? `<div class="alert alert-warn" style="margin-bottom:12px;">Exibindo ${coletas.length} coleta${coletas.length!==1?'s':''} ${filtroPromotor?'de '+filtroPromotor:''} ${filtroLoja?'em '+filtroLoja:''}</div>` : ''}
+
+    ${lojasFiltered.length === 0
+      ? `<div class="empty"><div class="icon">🏪</div><p>${filtroAtivo?'Nenhuma coleta com esse filtro.':'Nenhuma loja coletada ainda.'}</p></div>`
+      : `<p class="section-title">Lojas (${lojasFiltered.length})</p>` +
+        lojasFiltered.map(loja => {
+          const coletasLoja = coletas.filter(c => c.loja === loja);
+          const bandeira = coletasLoja[0]?.bandeira || '';
+          const promotores = [...new Set(coletasLoja.map(c => c.promotor))].join(', ');
+          return `<div class="loja-row" style="flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+              <span class="loja-nome">${loja} ${bandeira?`<span style="background:var(--bg3);color:var(--muted);font-size:10px;padding:2px 7px;border-radius:4px;">${bandeira}</span>`:''}</span>
+              <span style="font-size:12px;color:var(--muted);">${coletasLoja.length} coleta${coletasLoja.length!==1?'s':''}</span>
+            </div>
+            <div class="loja-meta">Promotor: ${promotores}</div>
+            ${coletasLoja.map(c=>`<div style="display:flex;justify-content:space-between;width:100%;font-size:12px;padding-top:3px;border-top:1px solid var(--border);margin-top:3px;"><span style="color:var(--muted)">${c.produto}</span><span style="color:var(--green);font-weight:700;">R$ ${parseFloat(c.preco).toFixed(2)}</span></div>`).join('')}
+          </div>`;
+        }).join('')
+    }`;
 }
 
 function criarPesquisa() {
@@ -702,6 +895,7 @@ function criarPesquisa() {
   document.getElementById('np-nome').value = '';
   document.getElementById('np-obs').value = '';
   closeModal('modal-nova-pesq');
+  salvarPesquisaNuvem(nova);
   renderSupHome();
 }
 
@@ -751,6 +945,7 @@ function encerrarPesquisa() {
   p.status = 'encerrada';
   p.encerradaEm = new Date().toLocaleDateString('pt-BR');
   setData('pesquisas', pesqs);
+  encerrarPesquisaNuvem(currentPesqId);
   renderDetalhe();
   document.getElementById('btn-encerrar').style.display = 'none';
   document.getElementById('fab-add-prod').style.display = 'none';
@@ -1173,6 +1368,122 @@ function exportarExcel(pesqId) {
 }
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+// ============ OFFLINE SYNC ============
+// Queue stores coletas made offline: [{ pesqId, prodIdx, coleta, ts }]
+function getQueue() { return getData('sync_queue', []); }
+function setQueue(q) { setData('sync_queue', q); }
+
+function enqueueColeta(pesqId, prodIdx, coleta) {
+  // Already saved to localStorage (works offline). Queue is for future cloud sync.
+  const q = getQueue();
+  q.push({ pesqId, prodIdx, coleta, ts: Date.now(), synced: false });
+  setQueue(q);
+}
+
+// Sync indicator in topbar
+function updateSyncBadge() {
+  const q = getQueue().filter(x => !x.synced);
+  document.querySelectorAll('.sync-badge').forEach(el => {
+    if (q.length > 0) {
+      el.textContent = `⏳ ${q.length} p/ sincronizar`;
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+}
+
+// Simulate sync (applies pending items that may have been saved on another session)
+async function tentarSincronizar() {
+  if (!navigator.onLine) return;
+  const q = getQueue();
+  const pendentes = q.filter(x => !x.synced);
+  if (pendentes.length === 0) { updateSyncBadge(); return; }
+
+  // Apply pending coletas to localStorage (idempotent merge)
+  const pesqs = getData('pesquisas', []);
+  let changed = false;
+  pendentes.forEach(item => {
+    const p = pesqs.find(x => x.id === item.pesqId);
+    if (!p) return;
+    const prod = p.produtos[item.prodIdx];
+    if (!prod) return;
+    if (!prod.coletas) prod.coletas = [];
+    // Avoid duplicates by timestamp+promotor
+    const jaExiste = prod.coletas.some(c => c.promotor === item.coleta.promotor && c.data === item.coleta.data && c.hora === item.coleta.hora);
+    if (!jaExiste) { prod.coletas.push(item.coleta); changed = true; }
+    item.synced = true;
+  });
+  if (changed) setData('pesquisas', pesqs);
+  setQueue(q);
+  updateSyncBadge();
+  showToast(`✓ ${pendentes.length} coleta${pendentes.length!==1?'s':''} sincronizada${pendentes.length!==1?'s':''}`);
+}
+
+// Toast notification
+function showToast(msg, duration=3000) {
+  let toast = document.getElementById('sync-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'sync-toast';
+    toast.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#1E2B52;color:#F0F4FF;border:1px solid rgba(255,255,255,0.12);padding:10px 18px;border-radius:20px;font-size:13px;z-index:999;transition:opacity 0.3s;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, duration);
+}
+
+// Offline/online events
+window.addEventListener('online', () => {
+  showToast('🌐 Conexão restaurada. Sincronizando...');
+  checkSupabase().then(() => setTimeout(flushQueue, 1000));
+});
+window.addEventListener('offline', () => {
+  showToast('📴 Sem conexão. Coletas salvas localmente.', 4000);
+});
+
+// Hook into salvarPreco to also enqueue
+const _salvarPrecoOrig = salvarPreco;
+salvarPreco = function() {
+  // Capture idx before calling original
+  const idx = coletarProdIdx;
+  const pesqId = coletarPesqId;
+  _salvarPrecoOrig();
+  // After save, enqueue for sync tracking
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === pesqId);
+  if (p && p.produtos[idx] && p.produtos[idx].coletas.length > 0) {
+    const coleta = p.produtos[idx].coletas[p.produtos[idx].coletas.length - 1];
+    enqueueColeta(pesqId, idx, coleta);
+    if (supaOnline) {
+      const prod = p.produtos[idx];
+      const prodId = pesqId + '_' + prod.ean;
+      salvarColetaNuvem(coleta, prodId, pesqId).then(ok => {
+        if (ok) {
+          // Mark as synced in queue
+          const q = getQueue();
+          const item = q.filter(x => !x.synced).pop();
+          if (item) { item.synced = true; setQueue(q); }
+          updateSyncIndicator();
+          showToast('✓ Coleta salva na nuvem');
+        } else {
+          showToast('📴 Salvo offline. Sincronizará em breve.', 4000);
+        }
+      });
+    } else {
+      updateSyncIndicator();
+      showToast('📴 Salvo offline. Sincronizará quando conectar.', 4000);
+    }
+  }
+};
+
+// Init on load
+window.addEventListener('load', () => {
+  if (navigator.onLine) checkSupabase();
+});
 </script>
 </body>
 </html>
