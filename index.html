@@ -449,10 +449,22 @@ const USUARIOS_PADRAO = {
 // ============ SUPABASE ============
 const SUPA_URL = 'https://owgjivmcwhncasoyfywj.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93Z2ppdm1jd2huY2Fzb3lmeXdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MDM0MDQsImV4cCI6MjA5NjA3OTQwNH0.ih_2LkePNncNy-zGthfenlrZSreYJIPW0H81lCjT5d4';
-const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+let supa = null;
 let supaOnline = false;
 
+function initSupabase() {
+  try {
+    if (typeof supabase !== 'undefined' && supabase.createClient) {
+      supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+      return true;
+    }
+  } catch(e) { console.error('Supabase init error:', e); }
+  return false;
+}
+
 async function checkSupabase() {
+  if (!supa) initSupabase();
+  if (!supa) { supaOnline = false; updateSyncIndicator(); return false; }
   try {
     const { data, error } = await supa.from('pesquisas').select('id').limit(1);
     if (error) {
@@ -494,7 +506,8 @@ function updateSyncIndicator() {
 
 // ── Supabase READ ──────────────────────────────────────────────
 async function carregarPesquisasNuvem() {
-  if (!supaOnline) return;
+  if (!supa) initSupabase();
+  if (!supaOnline || !supa) return;
   try {
     const { data: pesqs, error: e1 } = await supa.from('pesquisas').select('*');
     if (e1) { console.error('Erro carregar pesquisas:', JSON.stringify(e1)); throw e1; }
@@ -539,7 +552,8 @@ async function carregarPesquisasNuvem() {
 
 // ── Supabase WRITE ─────────────────────────────────────────────
 async function salvarPesquisaNuvem(p) {
-  if (!supaOnline) return false;
+  if (!supa) initSupabase();
+  if (!supaOnline || !supa) return false;
   try {
     await supa.from('pesquisas').upsert({
       id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
@@ -550,8 +564,9 @@ async function salvarPesquisaNuvem(p) {
 }
 
 async function salvarProdutoNuvem(prod, pesqId) {
-  if (!supaOnline) {
-    showToast('⚠️ Supabase offline ao salvar produto', 4000);
+  if (!supa) initSupabase();
+  if (!supaOnline || !supa) {
+    showToast('⚠️ Sem conexão com a nuvem', 4000);
     return false;
   }
   try {
@@ -579,7 +594,8 @@ async function salvarProdutoNuvem(prod, pesqId) {
 }
 
 async function salvarColetaNuvem(coleta, prodId, pesqId) {
-  if (!supaOnline) return false;
+  if (!supa) initSupabase();
+  if (!supaOnline || !supa) return false;
   try {
     const id = prodId + '_' + coleta.promotor.replace(/\s/g,'') + '_' + coleta.data.replace(/\//g,'') + '_' + coleta.hora.replace(/:/g,'');
     await supa.from('coletas').upsert({
@@ -1583,4 +1599,25 @@ salvarPreco = function() {
           // Mark as synced in queue
           const q = getQueue();
           const item = q.filter(x => !x.synced).pop();
-          if 
+          if (item) { item.synced = true; setQueue(q); }
+          updateSyncIndicator();
+          showToast('✓ Coleta salva na nuvem');
+        } else {
+          showToast('📴 Salvo offline. Sincronizará em breve.', 4000);
+        }
+      });
+    } else {
+      updateSyncIndicator();
+      showToast('📴 Salvo offline. Sincronizará quando conectar.', 4000);
+    }
+  }
+};
+
+// Init on load
+window.addEventListener('load', () => {
+  initSupabase();
+  if (navigator.onLine) checkSupabase();
+});
+</script>
+</body>
+</html>
