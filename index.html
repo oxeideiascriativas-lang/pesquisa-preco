@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>PesquisaPreço</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
@@ -377,6 +377,7 @@
     <span style="color:#fff;font-size:14px;opacity:0.8;">Aponte para o código de barras</span>
   </div>
   <div id="scanner-viewport">
+    <video id="scanner-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:block;"></video>
     <div class="scanner-overlay">
       <div class="scan-box"><div class="scan-line"></div></div>
     </div>
@@ -838,7 +839,8 @@ function salvarPreco() {
   renderColetar();
 }
 
-// ============ SCANNER ============
+// ============ SCANNER (ZXing) ============
+let zxingReader = null;
 let scannerAtivo = false;
 
 function openScanner(mode) {
@@ -849,55 +851,60 @@ function openScanner(mode) {
   scannerMode = mode;
   if (mode === 'sup') closeModal('modal-add-prod');
   document.getElementById('scanner-container').classList.add('open');
-  startQuagga();
+  startZXing();
 }
 
 function closeScanner() {
   document.getElementById('scanner-container').classList.remove('open');
-  stopQuagga();
+  stopZXing();
   if (scannerMode === 'sup') openModal('modal-add-prod');
 }
 
-function startQuagga() {
+function startZXing() {
   if (scannerAtivo) return;
-  Quagga.init({
-    inputStream: {
-      name: 'Live', type: 'LiveStream',
-      target: document.getElementById('scanner-viewport'),
-      constraints: { facingMode: 'environment', width: { min: 640 }, height: { min: 480 } }
-    },
-    locator: { patchSize: 'medium', halfSample: true },
-    numOfWorkers: 2, frequency: 10,
-    decoder: { readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader'] },
-    locate: true
-  }, err => {
-    if (err) {
-      cameraPermitida = false;
-      localStorage.setItem('cam_permission', 'denied');
-      alert('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
-      closeScanner(); return;
-    }
-    Quagga.start();
+  const video = document.getElementById('scanner-video');
+  try {
+    const hints = new Map();
+    const formats = [
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E,
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    zxingReader = new ZXing.BrowserMultiFormatReader(hints);
+    zxingReader.decodeFromConstraints(
+      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: 'continuous' } },
+      video,
+      (result, err) => {
+        if (result) {
+          const code = result.getText();
+          if (navigator.vibrate) navigator.vibrate(100);
+          closeScanner();
+          handleBarcode(code);
+        }
+      }
+    );
     scannerAtivo = true;
-  });
-  Quagga.onDetected(onBarcode);
+  } catch(e) {
+    cameraPermitida = false;
+    localStorage.setItem('cam_permission', 'denied');
+    alert('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
+    closeScanner();
+  }
 }
 
-function stopQuagga() {
-  if (!scannerAtivo) return;
-  Quagga.offDetected(onBarcode);
-  Quagga.stop();
+function stopZXing() {
+  if (zxingReader) { try { zxingReader.reset(); } catch(e){} zxingReader = null; }
+  const video = document.getElementById('scanner-video');
+  if (video && video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
   scannerAtivo = false;
 }
 
-let lastCode = null, lastTime = 0;
-function onBarcode(result) {
-  const code = result.codeResult.code;
-  const now = Date.now();
-  if (code === lastCode && now - lastTime < 2000) return;
-  lastCode = code; lastTime = now;
-  if (navigator.vibrate) navigator.vibrate(100);
-  closeScanner();
+function handleBarcode(code) {
   if (scannerMode === 'sup') {
     document.getElementById('ap-ean').value = code;
     const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
