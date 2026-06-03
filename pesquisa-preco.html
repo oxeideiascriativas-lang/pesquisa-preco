@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PesquisaPreço</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0A0F2E; --bg2: #111835; --bg3: #1A2448; --card: #1E2B52;
+    --red: #D42B2B; --red2: #FF3B3B; --text: #F0F4FF; --muted: #8A97C4;
+    --border: rgba(255,255,255,0.08); --green: #22C55E; --amber: #F59E0B; --blue: #3B82F6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; overflow-x: hidden; }
+  .screen { display: none; min-height: 100vh; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* LOGIN */
+  #s-login { background: var(--bg); align-items: center; justify-content: center; padding: 2rem; }
+  .login-logo { text-align: center; margin-bottom: 2.5rem; }
+  .login-logo .icon { width: 72px; height: 72px; background: var(--red); border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; font-size: 32px; }
+  .login-logo h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  .login-logo p { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .login-box { background: var(--card); border-radius: 20px; padding: 1.5rem; width: 100%; max-width: 360px; border: 1px solid var(--border); }
+  .login-box h2 { font-size: 12px; font-weight: 600; margin-bottom: 1.25rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-size: 16px; padding: 12px 14px; outline: none; -webkit-appearance: none; appearance: none;
+  }
+  .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A97C4' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+  .field input:focus, .field select:focus { border-color: var(--red); }
+  .field textarea { resize: none; min-height: 80px; font-family: inherit; }
+  .btn { width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
+  .btn:active { transform: scale(0.97); opacity: 0.85; }
+  .btn-primary { background: var(--red); color: #fff; }
+  .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .btn-green { background: var(--green); color: #fff; }
+  .btn-blue { background: var(--blue); color: #fff; }
+  .btn-sm { padding: 8px 14px; font-size: 13px; border-radius: 8px; width: auto; }
+  .error-msg { color: var(--red2); font-size: 13px; margin-top: 0.5rem; text-align: center; display: none; }
+
+  /* TOPBAR */
+  .topbar { background: var(--bg2); padding: 14px 16px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar h2 { font-size: 17px; font-weight: 600; }
+  .topbar .badge { background: var(--red); color: #fff; font-size: 10px; padding: 3px 8px; border-radius: 20px; font-weight: 700; }
+  .back-btn { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; padding: 2px 6px 2px 0; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 5px 10px; font-size: 14px; cursor: pointer; }
+
+  /* CONTENT */
+  .content { flex: 1; padding: 16px; overflow-y: auto; }
+
+  /* CARDS */
+  .pesq-card { background: var(--card); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s; }
+  .pesq-card:active { border-color: var(--red); }
+  .pesq-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .pesq-card h3 { font-size: 15px; font-weight: 600; }
+  .pesq-card p { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .status-badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 700; white-space: nowrap; margin-left: 8px; }
+  .status-ativa { background: rgba(34,197,94,0.15); color: var(--green); }
+  .status-encerrada { background: rgba(138,151,196,0.15); color: var(--muted); }
+  .pesq-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; margin-right: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--red); border-radius: 2px; transition: width 0.3s; }
+  .progress-txt { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  /* RESUMO STATS */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .stat-card { background: var(--card); border-radius: 12px; padding: 12px 14px; border: 1px solid var(--border); }
+  .stat-card .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .stat-card .stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stat-green { color: var(--green); }
+  .stat-amber { color: var(--amber); }
+  .stat-blue { color: var(--blue); }
+  .stat-red { color: var(--red2); }
+
+  /* LOJA ROW */
+  .loja-row { background: var(--bg3); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .loja-row .loja-nome { font-size: 13px; font-weight: 600; }
+  .loja-row .loja-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .loja-preco { font-size: 14px; font-weight: 700; color: var(--green); }
+
+  /* PRODUTO CARD */
+  .prod-card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .prod-thumb { width: 54px; height: 54px; border-radius: 10px; background: var(--bg3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 22px; overflow: hidden; }
+  .prod-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+  .prod-info { flex: 1; min-width: 0; }
+  .prod-info h4 { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prod-info p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .prod-price { font-size: 15px; font-weight: 700; color: var(--green); white-space: nowrap; }
+  .prod-price.empty { color: var(--amber); font-size: 11px; text-align: right; }
+  .del-btn { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; }
+
+  /* SCANNER */
+  #scanner-container { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; z-index: 100; display: none; flex-direction: column; }
+  #scanner-container.open { display: flex; }
+  #scanner-viewport { flex: 1; position: relative; overflow: hidden; }
+  #scanner-viewport video { width: 100%; height: 100%; object-fit: cover; }
+  #scanner-viewport canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .scanner-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .scan-box { width: 260px; height: 120px; border: 2px solid var(--red); border-radius: 12px; position: relative; box-shadow: 0 0 0 9999px rgba(0,0,0,0.55); }
+  .scan-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--red); top: 50%; animation: scanline 1.5s infinite ease-in-out; }
+  @keyframes scanline { 0%,100% { top: 10%; } 50% { top: 90%; } }
+  .scanner-top { padding: 50px 16px 16px; display: flex; align-items: center; gap: 12px; background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent); position: absolute; top: 0; left: 0; right: 0; }
+  .scanner-bottom { padding: 16px; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); position: absolute; bottom: 0; left: 0; right: 0; text-align: center; }
+  .scanner-bottom p { color: rgba(255,255,255,0.7); font-size: 13px; margin-bottom: 12px; }
+  .scanner-close { background: rgba(255,255,255,0.15); border: none; color: #fff; border-radius: 10px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+
+  /* PERMISSÃO CÂMERA */
+  #cam-permission { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 200; display: none; align-items: center; justify-content: center; padding: 24px; }
+  #cam-permission.open { display: flex; }
+  .cam-box { background: var(--bg2); border-radius: 20px; padding: 28px 20px; text-align: center; max-width: 320px; border: 1px solid var(--border); }
+  .cam-box .cam-icon { font-size: 52px; margin-bottom: 16px; }
+  .cam-box h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .cam-box p { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+
+  /* FOTO */
+  #foto-preview { width: 100%; max-height: 200px; object-fit: contain; border-radius: 10px; background: var(--bg3); display: none; margin-bottom: 10px; }
+
+  /* FAB */
+  .fab { position: fixed; bottom: 24px; right: 20px; width: 56px; height: 56px; background: var(--red); border-radius: 50%; border: none; color: #fff; font-size: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(212,43,43,0.4); z-index: 20; transition: transform 0.15s; }
+  .fab:active { transform: scale(0.9); }
+
+  /* MODAL */
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 50; display: none; align-items: flex-end; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--bg2); border-radius: 20px 20px 0 0; padding: 20px 16px 32px; width: 100%; border-top: 1px solid var(--border); max-height: 92vh; overflow-y: auto; }
+  .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 14px; }
+
+  /* TABS */
+  .tabs { display: flex; background: var(--bg2); border-bottom: 1px solid var(--border); }
+  .tab { flex: 1; padding: 12px; text-align: center; font-size: 13px; color: var(--muted); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; font-weight: 500; }
+  .tab.active { color: var(--red); border-bottom-color: var(--red); }
+
+  .section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 8px; }
+  .empty { text-align: center; padding: 48px 16px; }
+  .empty .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty p { color: var(--muted); font-size: 14px; }
+  .alert { padding: 12px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 12px; }
+  .alert-success { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .alert-warn { background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+</style>
+</head>
+<body>
+
+<!-- PERMISSÃO CÂMERA -->
+<div id="cam-permission">
+  <div class="cam-box">
+    <div class="cam-icon">📷</div>
+    <h3>Permissão de câmera</h3>
+    <p>Para ler códigos de barras dos produtos, o app precisa acessar a câmera do seu celular.</p>
+    <button class="btn btn-primary" style="margin-bottom:10px;" onclick="solicitarCamera()">Permitir câmera</button>
+    <button class="btn btn-secondary" onclick="pularCamera()">Agora não</button>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="s-login" class="screen active">
+  <div class="login-logo">
+    <div class="icon">📊</div>
+    <h1>PesquisaPreço</h1>
+    <p>Coleta inteligente de preços no PDV</p>
+  </div>
+  <div class="login-box">
+    <h2>Entrar</h2>
+    <div class="field">
+      <label>Usuário</label>
+      <input type="text" id="login-user" placeholder="seu usuário" autocomplete="off" autocapitalize="off">
+    </div>
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" id="login-pass" placeholder="••••••">
+    </div>
+    <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+    <div id="login-error" class="error-msg">Usuário ou senha incorretos</div>
+  </div>
+</div>
+
+<!-- SUPERVISOR HOME -->
+<div id="s-sup-home" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <h2>Pesquisas</h2>
+      <span class="badge" id="badge-ativas">0</span>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" onclick="abrirAlterarSenha()" title="Alterar senha">🔑</button>
+      <button class="icon-btn" onclick="logout()">Sair</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" onclick="supTab('ativas',this)">Ativas</button>
+    <button class="tab" onclick="supTab('encerradas',this)">Encerradas</button>
+  </div>
+  <div class="content" id="sup-list"></div>
+  <button class="fab" onclick="openModal('modal-nova-pesq')">+</button>
+</div>
+
+<!-- SUPERVISOR: DETALHE PESQUISA -->
+<div id="s-sup-detalhe" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="back-btn" onclick="goBack('s-sup-home')">←</button>
+      <h2 id="detalhe-titulo">Pesquisa</h2>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-sm" id="btn-resumo" onclick="abrirResumo()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);">📊 Resumo</button>
+      <button class="btn btn-sm btn-primary" id="btn-encerrar" onclick="encerrarPesquisa()">Encerrar</button>
+    </div>
+  </div>
+  <div class="content" id="sup-detalhe-content"></div>
+  <button class="fab" id="fab-add-prod" onclick="openModal('modal-add-prod')">+</button>
+</div>
+
+<!-- SUPERVISOR: RESUMO -->
+<div id="s-sup-resumo" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="back-btn" onclick="goBack('s-sup-detalhe')">←</button>
+      <h2>Resumo da Pesquisa</h2>
+    </div>
+    <button class="btn btn-sm btn-green" id="btn-export-resumo" onclick="exportarExcelAtual()">📥 Excel</button>
+  </div>
+  <div class="content" id="resumo-content"></div>
+</div>
+
+<!-- PROMOTOR HOME -->
+<div id="s-prom-home" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <h2>Olá, <span id="prom-nome"></span> 👋</h2>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" onclick="abrirAlterarSenha()" title="Alterar senha">🔑</button>
+      <button class="icon-btn" onclick="logout()">Sair</button>
+    </div>
+  </div>
+  <div class="content" id="prom-list"></div>
+</div>
+
+<!-- PROMOTOR: COLETAR -->
+<div id="s-prom-coletar" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="back-btn" onclick="goBack('s-prom-home')">←</button>
+      <h2 id="coletar-titulo">Coletar</h2>
+    </div>
+  </div>
+  <div class="content" id="coletar-content"></div>
+</div>
+
+<!-- MODAL: NOVA PESQUISA -->
+<div id="modal-nova-pesq" class="modal-overlay">
+  <div class="modal">
+    <h3>Nova Pesquisa</h3>
+    <div class="field">
+      <label>Nome da pesquisa</label>
+      <input type="text" id="np-nome" placeholder="Ex: Sardinha Coqueiro Jun/25">
+    </div>
+    <div class="field">
+      <label>Observações (opcional)</label>
+      <textarea id="np-obs" placeholder="Instrução para o promotor..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-nova-pesq')">Cancelar</button>
+      <button class="btn btn-primary" onclick="criarPesquisa()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ADD PRODUTO -->
+<div id="modal-add-prod" class="modal-overlay">
+  <div class="modal">
+    <h3>Adicionar Produto</h3>
+    <div class="field">
+      <label>Código de barras (EAN)</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="ap-ean" placeholder="Escanear ou digitar" style="flex:1;" readonly>
+        <button class="btn btn-secondary btn-sm" onclick="openScanner('sup')" style="white-space:nowrap;">📷 Ler</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Nome do produto</label>
+      <input type="text" id="ap-nome" placeholder="Ex: Sardinha Coqueiro 125g">
+    </div>
+    <div class="field">
+      <label>Foto do produto (opcional)</label>
+      <img id="foto-preview" src="" alt="preview">
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('foto-input').click()">📸 Foto / Galeria</button>
+      </div>
+      <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none;" onchange="onFotoSelect(event)">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-prod')">Cancelar</button>
+      <button class="btn btn-primary" onclick="addProduto()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PREENCHER PREÇO -->
+<div id="modal-preco" class="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-preco-titulo">Preencher preço</h3>
+    <div id="modal-preco-prod" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;"></div>
+    <div class="field">
+      <label>Loja</label>
+      <input type="text" id="mp-loja" placeholder="Nome da loja">
+    </div>
+    <div class="field">
+      <label>Bandeira</label>
+      <select id="mp-bandeira">
+        <option value="">Selecione a bandeira</option>
+        <option value="MIX">MIX</option>
+        <option value="SUPER">SUPER</option>
+        <option value="CAMINOS">CAMINOS</option>
+        <option value="HIPER">HIPER</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Preço encontrado (R$)</label>
+      <input type="number" id="mp-preco" placeholder="0,00" step="0.01" min="0" inputmode="decimal">
+    </div>
+    <div class="field">
+      <label>Observação (opcional)</label>
+      <input type="text" id="mp-obs" placeholder="Ex: produto em oferta">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-preco')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarPreco()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ALTERAR SENHA -->
+<div id="modal-senha" class="modal-overlay">
+  <div class="modal">
+    <h3>Alterar Senha</h3>
+    <div class="field">
+      <label>Senha atual</label>
+      <input type="password" id="senha-atual" placeholder="••••••">
+    </div>
+    <div class="field">
+      <label>Nova senha</label>
+      <input type="password" id="senha-nova" placeholder="••••••">
+    </div>
+    <div class="field">
+      <label>Confirmar nova senha</label>
+      <input type="password" id="senha-confirma" placeholder="••••••">
+    </div>
+    <div id="senha-error" class="error-msg"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-senha')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarSenha()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCANNER -->
+<div id="scanner-container">
+  <div class="scanner-top">
+    <button class="scanner-close" onclick="closeScanner()">← Voltar</button>
+    <span style="color:#fff;font-size:14px;opacity:0.8;">Aponte para o código de barras</span>
+  </div>
+  <div id="scanner-viewport">
+    <div class="scanner-overlay">
+      <div class="scan-box"><div class="scan-line"></div></div>
+    </div>
+  </div>
+  <div class="scanner-bottom">
+    <p>Posicione o código dentro do quadro vermelho</p>
+    <button class="scanner-close" onclick="closeScanner()">Cancelar</button>
+  </div>
+</div>
+
+<script>
+// ============ USUÁRIOS PADRÃO ============
+const USUARIOS_PADRAO = {
+  'bruno':     { senha: 'sup123',   tipo: 'sup',  nome: 'Bruno' },
+  'adelaide':  { senha: 'sup123',   tipo: 'sup',  nome: 'Adelaide' },
+  'tiago':     { senha: 'promo123', tipo: 'prom', nome: 'Tiago' },
+  'luciana':   { senha: 'promo123', tipo: 'prom', nome: 'Luciana' },
+  'luellen':   { senha: 'promo123', tipo: 'prom', nome: 'Luellen' },
+  'cristian':  { senha: 'promo123', tipo: 'prom', nome: 'Cristian' },
+  'elizabeth': { senha: 'promo123', tipo: 'prom', nome: 'Elizabeth' },
+  'paula':     { senha: 'promo123', tipo: 'prom', nome: 'Paula' },
+};
+
+let currentUser = null;
+let currentPesqId = null;
+let scannerMode = null;
+let fotoBase64 = null;
+let coletarPesqId = null;
+let coletarProdIdx = null;
+let supTabAtual = 'ativas';
+let cameraPermitida = false;
+
+// ============ STORAGE ============
+function getData(key, def) {
+  try { return JSON.parse(localStorage.getItem(key)) || def; } catch(e) { return def; }
+}
+function setData(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function getUsuarios() {
+  const saved = getData('usuarios_custom', {});
+  return Object.assign({}, USUARIOS_PADRAO, saved);
+}
+
+function getUserData(login) {
+  const usuarios = getUsuarios();
+  return usuarios[login.toLowerCase()] || null;
+}
+
+function setSenhaUsuario(login, novaSenha) {
+  const custom = getData('usuarios_custom', {});
+  const base = getUsuarios();
+  const user = base[login.toLowerCase()];
+  if (!user) return false;
+  custom[login.toLowerCase()] = { ...user, senha: novaSenha };
+  setData('usuarios_custom', custom);
+  return true;
+}
+
+// ============ CÂMERA ============
+function verificarCamera() {
+  const permSalva = localStorage.getItem('cam_permission');
+  if (permSalva === 'granted') { cameraPermitida = true; return; }
+  if (permSalva === 'denied') { cameraPermitida = false; return; }
+  document.getElementById('cam-permission').classList.add('open');
+}
+
+function solicitarCamera() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      stream.getTracks().forEach(t => t.stop());
+      cameraPermitida = true;
+      localStorage.setItem('cam_permission', 'granted');
+      document.getElementById('cam-permission').classList.remove('open');
+    })
+    .catch(() => {
+      cameraPermitida = false;
+      localStorage.setItem('cam_permission', 'denied');
+      document.getElementById('cam-permission').classList.remove('open');
+      alert('Permissão negada. Você ainda pode digitar o EAN manualmente.');
+    });
+}
+
+function pularCamera() {
+  cameraPermitida = false;
+  document.getElementById('cam-permission').classList.remove('open');
+}
+
+// ============ AUTH ============
+function doLogin() {
+  const u = document.getElementById('login-user').value.trim().toLowerCase();
+  const p = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-error');
+  const user = getUserData(u);
+  if (user && user.senha === p) {
+    currentUser = { ...user, usuario: u };
+    err.style.display = 'none';
+    verificarCamera();
+    if (currentUser.tipo === 'sup') { showScreen('s-sup-home'); renderSupHome(); }
+    else { showScreen('s-prom-home'); renderPromHome(); }
+  } else {
+    err.style.display = 'block';
+  }
+}
+
+function logout() {
+  currentUser = null;
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+  showScreen('s-login');
+}
+
+// ============ ALTERAR SENHA ============
+function abrirAlterarSenha() {
+  document.getElementById('senha-atual').value = '';
+  document.getElementById('senha-nova').value = '';
+  document.getElementById('senha-confirma').value = '';
+  document.getElementById('senha-error').style.display = 'none';
+  openModal('modal-senha');
+}
+
+function salvarSenha() {
+  const atual = document.getElementById('senha-atual').value;
+  const nova = document.getElementById('senha-nova').value;
+  const confirma = document.getElementById('senha-confirma').value;
+  const errEl = document.getElementById('senha-error');
+
+  if (atual !== currentUser.senha) {
+    errEl.textContent = 'Senha atual incorreta'; errEl.style.display = 'block'; return;
+  }
+  if (nova.length < 4) {
+    errEl.textContent = 'Nova senha deve ter ao menos 4 caracteres'; errEl.style.display = 'block'; return;
+  }
+  if (nova !== confirma) {
+    errEl.textContent = 'As senhas não coincidem'; errEl.style.display = 'block'; return;
+  }
+  setSenhaUsuario(currentUser.usuario, nova);
+  currentUser.senha = nova;
+  errEl.style.display = 'none';
+  closeModal('modal-senha');
+  alert('Senha alterada com sucesso!');
+}
+
+// ============ NAVEGAÇÃO ============
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function goBack(to) {
+  showScreen(to);
+  if (to === 's-sup-home') renderSupHome();
+  if (to === 's-prom-home') renderPromHome();
+  if (to === 's-sup-detalhe') renderDetalhe();
+}
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ============ SUPERVISOR HOME ============
+function supTab(tab, el) {
+  supTabAtual = tab;
+  document.querySelectorAll('#s-sup-home .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderSupHome();
+}
+
+function renderSupHome() {
+  const pesqs = getData('pesquisas', []);
+  const filtradas = pesqs.filter(p => supTabAtual === 'ativas' ? p.status === 'ativa' : p.status === 'encerrada');
+  document.getElementById('badge-ativas').textContent = pesqs.filter(p => p.status === 'ativa').length;
+
+  const list = document.getElementById('sup-list');
+  if (filtradas.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="icon">📋</div><p>${supTabAtual === 'ativas' ? 'Nenhuma pesquisa ativa.<br>Toque em + para criar.' : 'Nenhuma pesquisa encerrada ainda.'}</p></div>`;
+    return;
+  }
+  list.innerHTML = filtradas.map(p => {
+    const total = p.produtos.length;
+    const lojas = getLojasDaPesquisa(p);
+    const nColetas = lojas.length;
+    const pct = total > 0 ? Math.round((p.produtos.filter(pr => pr.coletas && pr.coletas.length > 0).length / total) * 100) : 0;
+    return `<div class="pesq-card" onclick="abrirDetalhe('${p.id}')">
+      <div class="pesq-card-header">
+        <div><h3>${p.nome}</h3><p>${total} produto${total!==1?'s':''} · ${nColetas} loja${nColetas!==1?'s':''} pesquisada${nColetas!==1?'s':''} · ${p.criadaEm}</p></div>
+        <span class="status-badge status-${p.status}">${p.status}</span>
+      </div>
+      <div class="pesq-card-footer">
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <span class="progress-txt">${pct}% coletado</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function getLojasDaPesquisa(p) {
+  const lojas = new Set();
+  p.produtos.forEach(prod => { if (prod.coletas) prod.coletas.forEach(c => lojas.add(c.loja)); });
+  return [...lojas];
+}
+
+function abrirDetalhe(id) {
+  currentPesqId = id;
+  const p = getData('pesquisas', []).find(x => x.id === id);
+  document.getElementById('detalhe-titulo').textContent = p.nome;
+  document.getElementById('btn-encerrar').style.display = p.status === 'ativa' ? '' : 'none';
+  document.getElementById('fab-add-prod').style.display = p.status === 'ativa' ? '' : 'none';
+  renderDetalhe();
+  showScreen('s-sup-detalhe');
+}
+
+function renderDetalhe() {
+  const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
+  const content = document.getElementById('sup-detalhe-content');
+  content.innerHTML = p.obs ? `<div class="alert alert-warn">📌 ${p.obs}</div>` : '';
+
+  if (p.produtos.length === 0) {
+    content.innerHTML += `<div class="empty"><div class="icon">📦</div><p>Nenhum produto cadastrado.<br>Toque em + para adicionar.</p></div>`;
+    return;
+  }
+
+  const lojas = getLojasDaPesquisa(p);
+  content.innerHTML += `<p class="section-title">Produtos (${p.produtos.length}) · ${lojas.length} loja${lojas.length!==1?'s':''} pesquisada${lojas.length!==1?'s':''}</p>`;
+
+  p.produtos.forEach((prod, idx) => {
+    const nColetas = prod.coletas ? prod.coletas.length : 0;
+    let coletasHTML = '';
+    if (nColetas > 0) {
+      coletasHTML = prod.coletas.map(c =>
+        `<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid var(--border);">
+          <div><span style="color:var(--muted)">${c.loja}</span>${c.bandeira?`<span style="background:var(--bg);color:var(--muted);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:5px;">${c.bandeira}</span>`:''}<br><span style="color:var(--muted);font-size:11px;">${c.promotor} · ${c.data} ${c.hora}</span></div>
+          <span style="color:var(--green);font-weight:700;">R$ ${parseFloat(c.preco).toFixed(2)}</span>
+        </div>`
+      ).join('');
+    }
+    content.innerHTML += `
+      <div class="prod-card" style="flex-direction:column;align-items:flex-start;gap:8px;">
+        <div style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
+          <div class="prod-info"><h4>${prod.nome}</h4><p>EAN: ${prod.ean} · ${nColetas} coleta${nColetas!==1?'s':''}</p></div>
+          ${p.status==='ativa'?`<button class="del-btn" onclick="deletarProd(${idx})">🗑️</button>`:''}
+        </div>
+        ${coletasHTML}
+      </div>`;
+  });
+
+  if (p.status === 'encerrada') {
+    content.innerHTML += `<button class="btn btn-green" style="margin-top:12px;" onclick="exportarExcel('${p.id}')">📥 Exportar Excel</button>`;
+  }
+}
+
+function abrirResumo() {
+  renderResumo();
+  showScreen('s-sup-resumo');
+}
+
+function renderResumo() {
+  const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
+  const content = document.getElementById('resumo-content');
+  const lojas = getLojasDaPesquisa(p);
+  const totalProd = p.produtos.length;
+  const totalColetas = p.produtos.reduce((acc, pr) => acc + (pr.coletas ? pr.coletas.length : 0), 0);
+  const produtosComColeta = p.produtos.filter(pr => pr.coletas && pr.coletas.length > 0).length;
+
+  document.getElementById('btn-export-resumo').style.display = p.status === 'encerrada' ? '' : 'none';
+
+  content.innerHTML = `
+    <p style="font-size:16px;font-weight:700;margin-bottom:12px;">${p.nome}</p>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Lojas pesquisadas</div><div class="stat-value stat-blue">${lojas.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Total de coletas</div><div class="stat-value stat-green">${totalColetas}</div></div>
+      <div class="stat-card"><div class="stat-label">Produtos cobertos</div><div class="stat-value stat-amber">${produtosComColeta}/${totalProd}</div></div>
+      <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value ${p.status==='ativa'?'stat-green':'stat-red'}" style="font-size:15px;margin-top:8px;">${p.status.toUpperCase()}</div></div>
+    </div>`;
+
+  if (lojas.length > 0) {
+    content.innerHTML += `<p class="section-title">Lojas pesquisadas</p>`;
+    lojas.forEach(loja => {
+      const coletasDaLoja = [];
+      p.produtos.forEach(prod => {
+        if (prod.coletas) prod.coletas.filter(c => c.loja === loja).forEach(c => coletasDaLoja.push({ ...c, produto: prod.nome }));
+      });
+      const bandeira = coletasDaLoja[0]?.bandeira || '';
+      const promotores = [...new Set(coletasDaLoja.map(c => c.promotor))].join(', ');
+      content.innerHTML += `
+        <div class="loja-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+            <span class="loja-nome">${loja} ${bandeira ? `<span style="background:var(--bg3);color:var(--muted);font-size:10px;padding:2px 7px;border-radius:4px;">${bandeira}</span>` : ''}</span>
+            <span style="font-size:12px;color:var(--muted);">${coletasDaLoja.length} coleta${coletasDaLoja.length!==1?'s':''}</span>
+          </div>
+          <div class="loja-meta">Promotor: ${promotores}</div>
+          ${coletasDaLoja.map(c => `<div style="display:flex;justify-content:space-between;width:100%;font-size:12px;padding-top:3px;border-top:1px solid var(--border);margin-top:3px;"><span style="color:var(--muted)">${c.produto}</span><span style="color:var(--green);font-weight:700;">R$ ${parseFloat(c.preco).toFixed(2)}</span></div>`).join('')}
+        </div>`;
+    });
+  } else {
+    content.innerHTML += `<div class="empty"><div class="icon">🏪</div><p>Nenhuma loja coletada ainda.</p></div>`;
+  }
+}
+
+function criarPesquisa() {
+  const nome = document.getElementById('np-nome').value.trim();
+  if (!nome) return alert('Informe o nome da pesquisa');
+  const pesqs = getData('pesquisas', []);
+  const nova = { id: 'p_' + Date.now(), nome, obs: document.getElementById('np-obs').value.trim(), status: 'ativa', criadaEm: new Date().toLocaleDateString('pt-BR'), produtos: [] };
+  pesqs.push(nova);
+  setData('pesquisas', pesqs);
+  document.getElementById('np-nome').value = '';
+  document.getElementById('np-obs').value = '';
+  closeModal('modal-nova-pesq');
+  renderSupHome();
+}
+
+function addProduto() {
+  const ean = document.getElementById('ap-ean').value.trim();
+  const nome = document.getElementById('ap-nome').value.trim();
+  if (!ean || !nome) return alert('Preencha o EAN e o nome do produto');
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === currentPesqId);
+  if (p.produtos.find(x => x.ean === ean)) return alert('Produto já cadastrado nesta pesquisa');
+  p.produtos.push({ ean, nome, foto: fotoBase64, coletas: [] });
+  setData('pesquisas', pesqs);
+  document.getElementById('ap-ean').value = '';
+  document.getElementById('ap-nome').value = '';
+  const prev = document.getElementById('foto-preview');
+  prev.style.display = 'none'; prev.src = '';
+  fotoBase64 = null;
+  closeModal('modal-add-prod');
+  renderDetalhe();
+}
+
+function deletarProd(idx) {
+  if (!confirm('Remover este produto?')) return;
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === currentPesqId);
+  p.produtos.splice(idx, 1);
+  setData('pesquisas', pesqs);
+  renderDetalhe();
+}
+
+function encerrarPesquisa() {
+  if (!confirm('Encerrar esta pesquisa? Os promotores não poderão mais coletar.')) return;
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === currentPesqId);
+  p.status = 'encerrada';
+  p.encerradaEm = new Date().toLocaleDateString('pt-BR');
+  setData('pesquisas', pesqs);
+  renderDetalhe();
+  document.getElementById('btn-encerrar').style.display = 'none';
+  document.getElementById('fab-add-prod').style.display = 'none';
+}
+
+// ============ PROMOTOR ============
+function renderPromHome() {
+  document.getElementById('prom-nome').textContent = currentUser.nome;
+  const pesqs = getData('pesquisas', []).filter(p => p.status === 'ativa');
+  const list = document.getElementById('prom-list');
+  if (pesqs.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="icon">🎉</div><p>Nenhuma pesquisa ativa no momento.</p></div>`;
+    return;
+  }
+  list.innerHTML = `<p class="section-title">Pesquisas abertas</p>` + pesqs.map(p => {
+    const total = p.produtos.length;
+    const coletasMinhas = p.produtos.filter(pr => pr.coletas && pr.coletas.some(c => c.promotor === currentUser.nome)).length;
+    return `<div class="pesq-card" onclick="abrirColetar('${p.id}')">
+      <div class="pesq-card-header">
+        <div><h3>${p.nome}</h3><p>${total} produto${total!==1?'s':''} para pesquisar</p></div>
+        <span class="status-badge status-ativa">ativa</span>
+      </div>
+      ${p.obs ? `<p style="font-size:12px;color:var(--amber);margin-top:6px;">📌 ${p.obs}</p>` : ''}
+      ${coletasMinhas > 0 ? `<div style="font-size:12px;color:var(--green);margin-top:6px;">✓ Você coletou ${coletasMinhas} produto${coletasMinhas!==1?'s':''}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function abrirColetar(id) {
+  coletarPesqId = id;
+  const p = getData('pesquisas', []).find(x => x.id === id);
+  document.getElementById('coletar-titulo').textContent = p.nome;
+  renderColetar();
+  showScreen('s-prom-coletar');
+}
+
+function renderColetar() {
+  const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
+  const content = document.getElementById('coletar-content');
+
+  if (p.produtos.length === 0) {
+    content.innerHTML = `<div class="empty"><div class="icon">📦</div><p>Nenhum produto cadastrado nesta pesquisa.</p></div>`;
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="alert alert-warn" style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="openScannerProm()">
+      <span style="font-size:22px;">📷</span>
+      <div><strong style="font-size:14px;">Escanear produto</strong><br><span style="font-size:12px;opacity:0.8;">Câmera para identificar automaticamente</span></div>
+    </div>
+    <p class="section-title">Produtos da pesquisa</p>`;
+
+  p.produtos.forEach((prod, idx) => {
+    const minhaColeta = prod.coletas && prod.coletas.find(c => c.promotor === currentUser.nome);
+    const totalColetas = prod.coletas ? prod.coletas.length : 0;
+    content.innerHTML += `
+      <div class="prod-card" onclick="abrirPreco(${idx})" style="cursor:pointer;">
+        <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
+        <div class="prod-info">
+          <h4>${prod.nome}</h4>
+          <p>EAN: ${prod.ean}</p>
+          ${totalColetas > 0 ? `<p style="color:var(--muted);font-size:11px;">${totalColetas} coleta${totalColetas!==1?'s':''} no total</p>` : ''}
+        </div>
+        <div style="text-align:right;">
+          ${minhaColeta
+            ? `<span class="prod-price">R$ ${parseFloat(minhaColeta.preco).toFixed(2)}</span><br><span style="font-size:10px;color:var(--muted);">${minhaColeta.loja}</span>`
+            : `<span class="prod-price empty">Toque p/<br>coletar</span>`}
+        </div>
+      </div>`;
+  });
+}
+
+function openScannerProm() {
+  if (!cameraPermitida) {
+    document.getElementById('cam-permission').classList.add('open');
+    return;
+  }
+  openScanner('prom');
+}
+
+function abrirPreco(idx) {
+  coletarProdIdx = idx;
+  const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
+  const prod = p.produtos[idx];
+  document.getElementById('modal-preco-titulo').textContent = prod.nome;
+  document.getElementById('modal-preco-prod').innerHTML = `
+    <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
+    <div><p style="font-size:14px;font-weight:600;">${prod.nome}</p><p style="font-size:12px;color:var(--muted);">EAN: ${prod.ean}</p></div>`;
+  document.getElementById('mp-preco').value = '';
+  document.getElementById('mp-obs').value = '';
+  document.getElementById('mp-loja').value = '';
+  document.getElementById('mp-bandeira').value = '';
+  openModal('modal-preco');
+}
+
+function salvarPreco() {
+  const loja = document.getElementById('mp-loja').value.trim();
+  const bandeira = document.getElementById('mp-bandeira').value;
+  const preco = document.getElementById('mp-preco').value;
+  if (!loja) return alert('Informe o nome da loja');
+  if (!bandeira) return alert('Selecione a bandeira');
+  if (!preco || parseFloat(preco) <= 0) return alert('Informe o preço');
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === coletarPesqId);
+  if (!p.produtos[coletarProdIdx].coletas) p.produtos[coletarProdIdx].coletas = [];
+  p.produtos[coletarProdIdx].coletas.push({
+    loja, bandeira,
+    preco: parseFloat(preco).toFixed(2),
+    obs: document.getElementById('mp-obs').value.trim(),
+    promotor: currentUser.nome,
+    data: new Date().toLocaleDateString('pt-BR'),
+    hora: new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})
+  });
+  setData('pesquisas', pesqs);
+  closeModal('modal-preco');
+  renderColetar();
+}
+
+// ============ SCANNER ============
+let scannerAtivo = false;
+
+function openScanner(mode) {
+  if (!cameraPermitida) {
+    document.getElementById('cam-permission').classList.add('open');
+    return;
+  }
+  scannerMode = mode;
+  if (mode === 'sup') closeModal('modal-add-prod');
+  document.getElementById('scanner-container').classList.add('open');
+  startQuagga();
+}
+
+function closeScanner() {
+  document.getElementById('scanner-container').classList.remove('open');
+  stopQuagga();
+  if (scannerMode === 'sup') openModal('modal-add-prod');
+}
+
+function startQuagga() {
+  if (scannerAtivo) return;
+  Quagga.init({
+    inputStream: {
+      name: 'Live', type: 'LiveStream',
+      target: document.getElementById('scanner-viewport'),
+      constraints: { facingMode: 'environment', width: { min: 640 }, height: { min: 480 } }
+    },
+    locator: { patchSize: 'medium', halfSample: true },
+    numOfWorkers: 2, frequency: 10,
+    decoder: { readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader'] },
+    locate: true
+  }, err => {
+    if (err) {
+      cameraPermitida = false;
+      localStorage.setItem('cam_permission', 'denied');
+      alert('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
+      closeScanner(); return;
+    }
+    Quagga.start();
+    scannerAtivo = true;
+  });
+  Quagga.onDetected(onBarcode);
+}
+
+function stopQuagga() {
+  if (!scannerAtivo) return;
+  Quagga.offDetected(onBarcode);
+  Quagga.stop();
+  scannerAtivo = false;
+}
+
+let lastCode = null, lastTime = 0;
+function onBarcode(result) {
+  const code = result.codeResult.code;
+  const now = Date.now();
+  if (code === lastCode && now - lastTime < 2000) return;
+  lastCode = code; lastTime = now;
+  if (navigator.vibrate) navigator.vibrate(100);
+  closeScanner();
+  if (scannerMode === 'sup') {
+    document.getElementById('ap-ean').value = code;
+    const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
+    const prod = p ? p.produtos.find(x => x.ean === code) : null;
+    if (prod) document.getElementById('ap-nome').value = prod.nome;
+    openModal('modal-add-prod');
+  } else if (scannerMode === 'prom') {
+    const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
+    const idx = p.produtos.findIndex(x => x.ean === code);
+    if (idx >= 0) { abrirPreco(idx); }
+    else { alert(`Produto EAN ${code} não encontrado nesta pesquisa.\n\nVerifique com o supervisor.`); }
+  }
+}
+
+// ============ FOTO ============
+function onFotoSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    fotoBase64 = ev.target.result;
+    const preview = document.getElementById('foto-preview');
+    preview.src = fotoBase64;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============ EXPORT EXCEL ============
+function exportarExcelAtual() { exportarExcel(currentPesqId); }
+
+function exportarExcel(pesqId) {
+  const p = getData('pesquisas', []).find(x => x.id === pesqId);
+  const rows = [['Data Pesquisa','Data Coleta','Hora','Pesquisa','Loja','Bandeira','Promotor','EAN','Produto','Preço (R$)','Observação']];
+  p.produtos.forEach(prod => {
+    if (prod.coletas && prod.coletas.length > 0) {
+      prod.coletas.forEach(c => {
+        rows.push([p.criadaEm, c.data, c.hora, p.nome, c.loja, c.bandeira||'', c.promotor, prod.ean, prod.nome, parseFloat(c.preco), c.obs||'']);
+      });
+    } else {
+      rows.push([p.criadaEm,'','',p.nome,'','','','',prod.ean,prod.nome,'','Sem coleta']);
+    }
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [12,12,8,26,20,10,14,16,28,12,20].map(w => ({wch:w}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Pesquisa');
+  XLSX.writeFile(wb, `pesquisa_${p.nome.replace(/\s+/g,'_')}.xlsx`);
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+</script>
+</body>
+</html>
