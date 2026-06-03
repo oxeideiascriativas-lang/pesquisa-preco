@@ -222,7 +222,7 @@
     </div>
   </div>
   <div class="content" id="sup-detalhe-content"></div>
-  <button class="fab" id="fab-add-prod" onclick="openModal('modal-add-prod')">+</button>
+  <button class="fab" id="fab-add-prod" onclick="abrirModalAddProd()">+</button>
 </div>
 
 <!-- SUPERVISOR: RESUMO -->
@@ -288,7 +288,7 @@
     <div class="field">
       <label>Código de barras (EAN)</label>
       <div style="display:flex;gap:8px;">
-        <input type="text" id="ap-ean" placeholder="Escanear ou digitar" style="flex:1;" readonly>
+        <input type="text" id="ap-ean" placeholder="Escanear ou digitar" style="flex:1;" inputmode="numeric">
         <button class="btn btn-secondary btn-sm" onclick="openScanner('sup')" style="white-space:nowrap;">📷 Ler</button>
       </div>
     </div>
@@ -703,6 +703,18 @@ function criarPesquisa() {
   document.getElementById('np-obs').value = '';
   closeModal('modal-nova-pesq');
   renderSupHome();
+}
+
+function abrirModalAddProd() {
+  // Reseta completamente o modal antes de abrir
+  document.getElementById('ap-ean').value = '';
+  document.getElementById('ap-nome').value = '';
+  const prev = document.getElementById('foto-preview');
+  prev.style.display = 'none';
+  prev.src = '';
+  fotoBase64 = null;
+  document.getElementById('foto-input').value = '';
+  openModal('modal-add-prod');
 }
 
 function addProduto() {
