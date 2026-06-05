@@ -266,6 +266,29 @@
   <div class="content" id="coletar-content"></div>
 </div>
 
+<!-- MODAL: EDITAR PRODUTO -->
+<div id="modal-editar-prod" class="modal-overlay">
+  <div class="modal">
+    <h3>Editar Produto</h3>
+    <div class="field">
+      <label>Código de barras (EAN)</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="ep-ean" placeholder="Código de barras" style="flex:1;" inputmode="numeric">
+        <button class="btn btn-secondary btn-sm" onclick="abrirScannerEdicao()" style="white-space:nowrap;">📷 Ler</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Nome do produto</label>
+      <input type="text" id="ep-nome" placeholder="Nome do produto">
+    </div>
+    <input type="hidden" id="ep-idx">
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-editar-prod')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicaoProduto()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: NOVA PESQUISA -->
 <div id="modal-nova-pesq" class="modal-overlay">
   <div class="modal">
@@ -462,34 +485,41 @@ function updateSyncIndicator() {
 // ── Supabase READ ──────────────────────────────────────────────
 async function carregarPesquisasNuvem() {
   if (!supa) initSupabase();
-  if (!supaOnline || !supa) return;
+  if (!supa) return null;
+  if (!supaOnline) {
+    await checkSupabase();
+    if (!supaOnline) return null;
+  }
   try {
     const { data: pesqs, error: e1 } = await supa.from('pesquisas').select('*');
-    if (e1) { console.error('Erro carregar pesquisas:', JSON.stringify(e1)); throw e1; }
-    console.log('Pesquisas carregadas:', pesqs.length);
+    if (e1) { console.error('Erro pesquisas:', JSON.stringify(e1)); return null; }
+
     const { data: prods, error: e2 } = await supa.from('produtos').select('*');
-    if (e2) { console.error('Erro carregar produtos:', JSON.stringify(e2)); throw e2; }
-    console.log('Produtos carregados:', prods.length);
+    if (e2) { console.error('Erro produtos:', JSON.stringify(e2)); return null; }
+
     const { data: coletas, error: e3 } = await supa.from('coletas').select('*');
-    if (e3) { console.error('Erro carregar coletas:', JSON.stringify(e3)); throw e3; }
-    console.log('Coletas carregadas:', coletas.length);
+    if (e3) { console.error('Erro coletas:', JSON.stringify(e3)); return null; }
 
-    // Preserva fotos que estão no localStorage (não sobem para nuvem)
+    console.log(`Nuvem: ${pesqs.length} pesquisas, ${prods.length} produtos, ${coletas.length} coletas`);
+
+    // ── PROTEÇÃO 1: nunca sobrescreve com menos dados que o localStorage ──
     const localPesqs = getData('pesquisas', []);
-    const getFotoLocal = (pesqId, ean) => {
-      const lp = localPesqs.find(x => x.id === pesqId);
-      if (!lp) return null;
-      const lpr = lp.produtos.find(x => x.ean === ean);
-      return lpr ? lpr.foto : null;
-    };
+    const localTotalProds = localPesqs.reduce((acc, p) => acc + (p.produtos||[]).length, 0);
+    const localTotalColetas = localPesqs.reduce((acc, p) =>
+      acc + (p.produtos||[]).reduce((a2, pr) => a2 + (pr.coletas||[]).length, 0), 0);
 
-    // Monta estrutura local mesclando nuvem + fotos locais
+    if (prods.length < localTotalProds || coletas.length < localTotalColetas) {
+      console.warn(`Nuvem tem menos dados que local. Fazendo merge seguro.`);
+      // Não sobrescreve - faz merge: mantém dados locais e adiciona da nuvem
+      return await mergeDadosNuvemLocal(pesqs, prods, coletas, localPesqs);
+    }
+
+    // ── PROTEÇÃO 2: monta estrutura mesclando nuvem + dados locais pendentes ──
     const pesquisas = pesqs.map(p => ({
       id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
       criadaEm: p.criada_em, encerradaEm: p.encerrada_em || '',
       produtos: prods.filter(pr => pr.pesquisa_id === p.id).map(pr => ({
-        id: pr.id, ean: pr.ean, nome: pr.nome,
-        foto: getFotoLocal(p.id, pr.ean),  // recupera foto do localStorage
+        id: pr.id, ean: pr.ean, nome: pr.nome, foto: null,
         coletas: coletas.filter(c => c.produto_id === pr.id).map(c => ({
           loja: c.loja, bandeira: c.bandeira || '', preco: c.preco,
           obs: c.obs || '', promotor: c.promotor, data: c.data, hora: c.hora
@@ -497,11 +527,130 @@ async function carregarPesquisasNuvem() {
       }))
     }));
 
+    // ── PROTEÇÃO 3: inclui produtos e coletas locais não sincronizados ──
+    pesquisas.forEach(p => {
+      const localP = localPesqs.find(lp => lp.id === p.id);
+      if (!localP) return;
+      localP.produtos.forEach(localProd => {
+        const jaExiste = p.produtos.find(pr => pr.ean === localProd.ean);
+        if (!jaExiste) {
+          // Produto local não está na nuvem ainda - mantém
+          p.produtos.push({ ...localProd });
+          console.warn(`Produto local não sincronizado mantido: ${localProd.nome}`);
+        } else {
+          // Produto existe - verifica coletas locais não sincronizadas
+          localProd.coletas.forEach(localColeta => {
+            const jaTemColeta = jaExiste.coletas.find(c =>
+              c.promotor === localColeta.promotor &&
+              c.data === localColeta.data &&
+              c.hora === localColeta.hora
+            );
+            if (!jaTemColeta) {
+              jaExiste.coletas.push(localColeta);
+              console.warn(`Coleta local não sincronizada mantida: ${localColeta.promotor} ${localColeta.data}`);
+            }
+          });
+        }
+      });
+    });
+
+    // ── PROTEÇÃO 4: inclui pesquisas locais não sincronizadas ──
+    localPesqs.forEach(localP => {
+      if (!pesquisas.find(p => p.id === localP.id)) {
+        pesquisas.push({ ...localP });
+        console.warn(`Pesquisa local não sincronizada mantida: ${localP.nome}`);
+      }
+    });
+
     setData('pesquisas', pesquisas);
     return pesquisas;
   } catch(e) {
     console.error('Erro ao carregar da nuvem:', e);
-    return null;
+    return null; // Nunca destrói dados locais em caso de erro
+  }
+}
+
+// Merge quando nuvem tem menos dados que local
+async function mergeDadosNuvemLocal(pesqsNuvem, prodsNuvem, coletasNuvem, localPesqs) {
+  // Base: começa pelos dados locais (mais completos)
+  const pesquisas = JSON.parse(JSON.stringify(localPesqs));
+
+  // Adiciona pesquisas da nuvem que não existem localmente
+  pesqsNuvem.forEach(p => {
+    if (!pesquisas.find(lp => lp.id === p.id)) {
+      pesquisas.push({
+        id: p.id, nome: p.nome, obs: p.obs || '', status: p.status,
+        criadaEm: p.criada_em, encerradaEm: p.encerrada_em || '', produtos: []
+      });
+    }
+  });
+
+  // Adiciona produtos da nuvem que não existem localmente
+  prodsNuvem.forEach(pr => {
+    const p = pesquisas.find(x => x.id === pr.pesquisa_id);
+    if (!p) return;
+    if (!p.produtos.find(x => x.ean === pr.ean)) {
+      p.produtos.push({ id: pr.id, ean: pr.ean, nome: pr.nome, foto: null, coletas: [] });
+    }
+  });
+
+  // Adiciona coletas da nuvem que não existem localmente
+  coletasNuvem.forEach(c => {
+    const pr = prodsNuvem.find(x => x.id === c.produto_id);
+    if (!pr) return;
+    const p = pesquisas.find(x => x.id === pr.pesquisa_id);
+    if (!p) return;
+    const prod = p.produtos.find(x => x.ean === pr.ean);
+    if (!prod) return;
+    const jaExiste = prod.coletas.find(lc =>
+      lc.promotor === c.promotor && lc.data === c.data && lc.hora === c.hora
+    );
+    if (!jaExiste) {
+      prod.coletas.push({
+        loja: c.loja, bandeira: c.bandeira || '', preco: c.preco,
+        obs: c.obs || '', promotor: c.promotor, data: c.data, hora: c.hora
+      });
+    }
+  });
+
+  setData('pesquisas', pesquisas);
+
+  // Re-sincroniza produtos e coletas locais para a nuvem
+  setTimeout(() => sincronizarLocalParaNuvem(pesquisas, prodsNuvem, coletasNuvem), 2000);
+  return pesquisas;
+}
+
+// Re-sincroniza dados locais que não estão na nuvem
+async function sincronizarLocalParaNuvem(pesquisas, prodsNuvem, coletasNuvem) {
+  if (!supaOnline || !supa) return;
+  let enviados = 0;
+  for (const p of pesquisas) {
+    for (const prod of p.produtos) {
+      const prodId = p.id + '_' + prod.ean;
+      const naNuvem = prodsNuvem.find(x => x.id === prodId);
+      if (!naNuvem) {
+        const { error } = await supa.from('produtos').upsert({
+          id: prodId, pesquisa_id: p.id, ean: prod.ean, nome: prod.nome, foto: null
+        });
+        if (!error) enviados++;
+      }
+      for (const c of (prod.coletas||[])) {
+        const coletaId = prodId + '_' + (c.promotor||'').replace(/\s/g,'') + '_' + (c.data||'').replace(/\//g,'') + '_' + (c.hora||'').replace(/:/g,'');
+        const naColeta = coletasNuvem.find(x => x.id === coletaId);
+        if (!naColeta) {
+          const { error } = await supa.from('coletas').upsert({
+            id: coletaId, produto_id: prodId, pesquisa_id: p.id,
+            loja: c.loja, bandeira: c.bandeira||'', preco: parseFloat(c.preco),
+            obs: c.obs||'', promotor: c.promotor, data: c.data, hora: c.hora
+          });
+          if (!error) enviados++;
+        }
+      }
+    }
+  }
+  if (enviados > 0) {
+    showToast(`✓ ${enviados} item(s) local(is) sincronizado(s) para a nuvem`);
+    updateSyncIndicator();
   }
 }
 
@@ -675,9 +824,17 @@ function doLogin() {
   if (user && user.senha === p) {
     currentUser = { ...user, usuario: u };
     err.style.display = 'none';
+    // Sempre tenta carregar da nuvem, independente do status atual
     checkSupabase().then(online => {
-      if (online) carregarPesquisasNuvem().then(() => entrarNoApp());
-      else entrarNoApp();
+      if (online) {
+        carregarPesquisasNuvem().then(dados => {
+          if (!dados) showToast('⚠️ Usando dados locais', 3000);
+          entrarNoApp();
+        });
+      } else {
+        showToast('📴 Sem conexão. Usando dados locais.', 3000);
+        entrarNoApp();
+      }
     });
   } else {
     err.style.display = 'block';
@@ -853,7 +1010,12 @@ function renderDetalhe() {
         <div style="display:flex;align-items:center;gap:12px;width:100%;">
           <div class="prod-thumb">${prod.foto ? `<img src="${prod.foto}">` : '📦'}</div>
           <div class="prod-info"><h4>${prod.nome}</h4><p>EAN: ${prod.ean} · ${nColetas} coleta${nColetas!==1?'s':''}</p></div>
-          ${p.status==='ativa'?`<button class="del-btn" onclick="deletarProd(${idx})">🗑️</button>`:''}
+          ${p.status==='ativa' && currentUser && currentUser.dualAccess ? `
+            <div style="display:flex;gap:6px;">
+              <button class="del-btn" onclick="abrirEditarProd(${idx})" style="font-size:18px;" title="Editar">✏️</button>
+              <button class="del-btn" onclick="deletarProd(${idx})" title="Excluir">🗑️</button>
+            </div>` : 
+            p.status==='ativa' ? `<button class="del-btn" onclick="deletarProd(${idx})">🗑️</button>` : ''}
         </div>
         ${coletasHTML}
       </div>`;
@@ -1013,15 +1175,120 @@ function addProduto() {
   setData('pesquisas', pesqs);
   document.getElementById('ap-ean').value = '';
   document.getElementById('ap-nome').value = '';
-  const prev = document.getElementById('foto-preview');
-  prev.style.display = 'none'; prev.src = '';
   closeModal('modal-add-prod');
   renderDetalhe();
-  // Salva na nuvem
-  salvarProdutoNuvem(novoProd, currentPesqId).then(ok => {
-    if (ok) showToast('✓ Produto salvo na nuvem');
-    else showToast('📴 Salvo localmente. Sincronizará quando possível.', 4000);
-  });
+  // Salva na nuvem com retry
+  gravarProdutoComRetry(novoProd, currentPesqId);
+}
+
+async function gravarProdutoComRetry(prod, pesqId, tentativa=1) {
+  if (!supa) initSupabase();
+  if (!supa) { showToast('📴 Sem conexão com banco', 3000); return; }
+  try {
+    const prodId = pesqId + '_' + prod.ean;
+    const { error } = await supa.from('produtos').upsert({
+      id: prodId, pesquisa_id: pesqId, ean: prod.ean, nome: prod.nome, foto: null
+    });
+    if (error) {
+      console.error('Erro gravar produto:', error);
+      if (tentativa < 3) {
+        setTimeout(() => gravarProdutoComRetry(prod, pesqId, tentativa+1), 2000);
+        showToast(`⚠️ Tentativa ${tentativa}/3 de salvar...`, 2000);
+      } else {
+        showToast('❌ Falha ao salvar na nuvem: ' + (error.message||error.code), 5000);
+      }
+    } else {
+      supaOnline = true;
+      showToast('✓ Produto salvo na nuvem');
+      // Também força re-check do supabase status
+      updateSyncIndicator();
+    }
+  } catch(e) {
+    console.error('Exceção gravar produto:', e);
+    if (tentativa < 3) {
+      setTimeout(() => gravarProdutoComRetry(prod, pesqId, tentativa+1), 2000);
+    } else {
+      showToast('❌ Erro: ' + e.message, 5000);
+    }
+  }
+}
+
+function abrirEditarProd(idx) {
+  const p = getData('pesquisas', []).find(x => x.id === currentPesqId);
+  const prod = p.produtos[idx];
+  document.getElementById('ep-ean').value = prod.ean;
+  document.getElementById('ep-nome').value = prod.nome;
+  document.getElementById('ep-idx').value = idx;
+  openModal('modal-editar-prod');
+}
+
+function abrirScannerEdicao() {
+  closeModal('modal-editar-prod');
+  scannerMode = 'edicao';
+  const input = document.getElementById('scanner-input');
+  input.value = '';
+  input.click();
+}
+
+async function salvarEdicaoProduto() {
+  const novoEan = document.getElementById('ep-ean').value.trim();
+  const novoNome = document.getElementById('ep-nome').value.trim();
+  const idx = parseInt(document.getElementById('ep-idx').value);
+
+  if (!novoEan || !novoNome) return alert('Preencha o EAN e o nome do produto');
+
+  const pesqs = getData('pesquisas', []);
+  const p = pesqs.find(x => x.id === currentPesqId);
+  const prod = p.produtos[idx];
+
+  // Verifica se novo EAN já existe em outro produto
+  const eanDuplicado = p.produtos.find((x, i) => i !== idx && x.ean === novoEan);
+  if (eanDuplicado) return alert('Já existe outro produto com este EAN nesta pesquisa');
+
+  const eanAntigo = prod.ean;
+  const idAntigo = prod.id || (currentPesqId + '_' + eanAntigo);
+  const idNovo = currentPesqId + '_' + novoEan;
+
+  prod.ean = novoEan;
+  prod.nome = novoNome;
+  prod.id = idNovo;
+
+  setData('pesquisas', pesqs);
+  closeModal('modal-editar-prod');
+  renderDetalhe();
+
+  // Atualiza na nuvem
+  if (supa && supaOnline) {
+    try {
+      // Se EAN mudou, precisa deletar o antigo e criar novo (PK mudou)
+      if (eanAntigo !== novoEan) {
+        await supa.from('coletas').delete().eq('produto_id', idAntigo);
+        await supa.from('produtos').delete().eq('id', idAntigo);
+        const { error } = await supa.from('produtos').upsert({
+          id: idNovo, pesquisa_id: currentPesqId, ean: novoEan, nome: novoNome, foto: null
+        });
+        if (error) { showToast('❌ Erro ao atualizar na nuvem: ' + error.message, 5000); return; }
+        // Re-insere coletas com novo produto_id
+        for (const c of (prod.coletas || [])) {
+          const coletaId = idNovo + '_' + (c.promotor||'').replace(/\s+/g,'') + '_' + (c.data||'').replace(/\//g,'') + '_' + (c.hora||'').replace(/:/g,'');
+          await supa.from('coletas').upsert({
+            id: coletaId, produto_id: idNovo, pesquisa_id: currentPesqId,
+            loja: c.loja, bandeira: c.bandeira||'', preco: parseFloat(c.preco),
+            obs: c.obs||'', promotor: c.promotor, data: c.data, hora: c.hora
+          });
+        }
+      } else {
+        // Só nome mudou
+        const { error } = await supa.from('produtos').update({ nome: novoNome }).eq('id', idNovo);
+        if (error) { showToast('❌ Erro ao atualizar na nuvem: ' + error.message, 5000); return; }
+      }
+      showToast('✓ Produto atualizado na nuvem');
+    } catch(e) {
+      showToast('❌ Erro: ' + e.message, 5000);
+    }
+  } else {
+    showToast('📴 Salvo localmente. Sincronizará quando conectar.', 3000);
+  }
 }
 
 function deletarProd(idx) {
@@ -1393,6 +1660,9 @@ function handleBarcode(code) {
     const prod = p ? p.produtos.find(x => x.ean === code) : null;
     if (prod) document.getElementById('ap-nome').value = prod.nome;
     openModal('modal-add-prod');
+  } else if (scannerMode === 'edicao') {
+    document.getElementById('ep-ean').value = code;
+    openModal('modal-editar-prod');
   } else if (scannerMode === 'prom') {
     const p = getData('pesquisas', []).find(x => x.id === coletarPesqId);
     const idx = p.produtos.findIndex(x => x.ean === code);
