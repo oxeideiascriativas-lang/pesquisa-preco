@@ -393,6 +393,8 @@ const USUARIOS_PADRAO = {
   'cristian':  { senha: 'promo123', tipo: 'prom', nome: 'Cristian' },
   'elizabeth': { senha: 'promo123', tipo: 'prom', nome: 'Elizabeth' },
   'paula':     { senha: 'promo123', tipo: 'prom', nome: 'Paula' },
+  'emily':     { senha: 'promo123', tipo: 'prom', nome: 'Emily' },
+  'marcio':    { senha: 'promo123', tipo: 'prom', nome: 'Marcio' },
 };
 
 // ============ SUPABASE ============
@@ -873,7 +875,16 @@ function renderResumo(filtroPromotor='', filtroLoja='') {
     (prod.coletas||[]).forEach(c => todasColetas.push({ ...c, produto: prod.nome, ean: prod.ean }));
   });
 
-  const todosPromotores = [...new Set(todasColetas.map(c => c.promotor))].sort();
+  // Lista todos os promotores cadastrados no sistema
+  const todosUsuarios = getUsuarios();
+  const todosPromotoresDoSistema = Object.values(todosUsuarios)
+    .filter(u => u.tipo === 'prom' || u.dualAccess)
+    .map(u => u.nome)
+    .sort();
+  const todosPromotores = [...new Set([
+    ...todosPromotoresDoSistema,
+    ...todasColetas.map(c => c.promotor)
+  ])].sort();
   const todasLojas = [...new Set(todasColetas.map(c => c.loja))].sort();
 
   // Apply filters
@@ -903,6 +914,22 @@ function renderResumo(filtroPromotor='', filtroLoja='') {
       <div class="stat-card"><div class="stat-label">Total de coletas</div><div class="stat-value stat-green">${totalColetas}</div></div>
       <div class="stat-card"><div class="stat-label">Produtos cobertos</div><div class="stat-value stat-amber">${[...new Set(todasColetas.map(c=>c.ean))].length}/${totalProd}</div></div>
       <div class="stat-card"><div class="stat-label">Promotores</div><div class="stat-value stat-blue">${todosPromotores.length}</div></div>
+    </div>
+
+    <p class="section-title">Promotores</p>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+      ${todosPromotores.map(pr => {
+        const coletasPr = todasColetas.filter(c => c.promotor === pr);
+        const lojasPr = [...new Set(coletasPr.map(c => c.loja))];
+        const produtosPr = [...new Set(coletasPr.map(c => c.ean))].length;
+        return `<div style="background:var(--card);border-radius:10px;padding:10px 14px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <p style="font-size:14px;font-weight:600;">${pr}</p>
+            <p style="font-size:12px;color:var(--muted);margin-top:2px;">${lojasPr.length} loja${lojasPr.length!==1?'s':''} · ${produtosPr} produto${produtosPr!==1?'s':''} coletado${produtosPr!==1?'s':''}</p>
+          </div>
+          <span style="font-size:18px;font-weight:700;color:${coletasPr.length>0?'var(--green)':'var(--muted)'};">${coletasPr.length}</span>
+        </div>`;
+      }).join('')}
     </div>
 
     <div style="background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px;border:1px solid var(--border);">
