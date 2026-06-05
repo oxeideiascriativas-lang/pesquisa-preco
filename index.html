@@ -965,12 +965,8 @@ function criarPesquisa() {
 }
 
 function abrirModalAddProd() {
-  // Reseta completamente o modal antes de abrir
   document.getElementById('ap-ean').value = '';
   document.getElementById('ap-nome').value = '';
-  const prev = document.getElementById('foto-preview');
-  prev.style.display = 'none';
-  prev.src = '';
   openModal('modal-add-prod');
 }
 
